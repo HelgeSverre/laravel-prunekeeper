@@ -13,6 +13,10 @@ class CsvExporter implements Exporter
 {
     public function export(Builder $query, ?array $columns = null): string
     {
+        if ($columns !== null) {
+            Prunekeeper::validateColumns($query->getModel(), $columns);
+        }
+
         $tempFile = Prunekeeper::createTempFile('prunekeeper_csv_');
 
         $writer = Writer::createFromPath($tempFile, 'w+');

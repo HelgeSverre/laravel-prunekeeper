@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace HelgeSverre\Prunekeeper;
 
 use Closure;
+use HelgeSverre\Prunekeeper\Exceptions\InvalidColumnException;
 use HelgeSverre\Prunekeeper\Support\ArchiveResult;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 
@@ -42,7 +44,7 @@ class Prunekeeper
     /**
      * Register a custom columns resolver callback.
      *
-     * @param  callable(Model): array<string>|null  $callback
+     * @param  (callable(Model): (array<string>|null))|null  $callback
      */
     public function resolveColumnsUsing(?callable $callback): self
     {
@@ -119,6 +121,26 @@ class Prunekeeper
         }
 
         return null;
+    }
+
+    /**
+     * Validate that the specified columns exist on the model's table.
+     *
+     * @param  array<string>  $columns
+     *
+     * @throws InvalidColumnException
+     */
+    public function validateColumns(Model $model, array $columns): void
+    {
+        $table = $model->getTable();
+        $connection = $model->getConnectionName();
+        $actualColumns = Schema::connection($connection)->getColumnListing($table);
+
+        $invalidColumns = array_diff($columns, $actualColumns);
+
+        if (! empty($invalidColumns)) {
+            throw new InvalidColumnException($model, array_values($invalidColumns), $actualColumns);
+        }
     }
 
     /**
