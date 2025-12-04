@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HelgeSverre\Prunekeeper\Listeners;
 
 use HelgeSverre\Prunekeeper\ArchivePrunedRecords;
+use HelgeSverre\Prunekeeper\Contracts\Archivable;
 use HelgeSverre\Prunekeeper\Contracts\Exporter;
 use HelgeSverre\Prunekeeper\Prunekeeper;
 use HelgeSverre\Prunekeeper\Support\ArchiveResult;
@@ -48,6 +49,7 @@ class ArchiveBeforePruning
             return;
         }
 
+        /** @var Model&Archivable $model */
         $model = new $modelClass;
 
         if (! $model->shouldArchiveBeforePruning()) {
@@ -56,6 +58,7 @@ class ArchiveBeforePruning
             return;
         }
 
+        /** @phpstan-ignore method.notFound (prunable() comes from Laravel's Prunable trait) */
         $query = $model->prunable();
 
         // Include soft-deleted records if the model uses SoftDeletes
@@ -99,7 +102,7 @@ class ArchiveBeforePruning
     /**
      * Perform the actual archive operation.
      *
-     * @param  Model  $model
+     * @param  Model&Archivable  $model
      * @param  Builder<Model>  $query
      */
     protected function performArchive($model, $query): ArchiveResult
@@ -146,7 +149,7 @@ class ArchiveBeforePruning
         }
 
         return new ArchiveResult(
-            modelClass: get_class($model),
+            modelClass: $model::class,
             storagePath: $filename,
             recordCount: $recordCount,
             fileSize: $fileSize,

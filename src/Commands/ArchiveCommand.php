@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HelgeSverre\Prunekeeper\Commands;
 
 use HelgeSverre\Prunekeeper\ArchivePrunedRecords;
+use HelgeSverre\Prunekeeper\Contracts\Archivable;
 use HelgeSverre\Prunekeeper\Contracts\Exporter;
 use HelgeSverre\Prunekeeper\Exporters\CsvExporter;
 use HelgeSverre\Prunekeeper\Exporters\SqlExporter;
@@ -145,6 +146,7 @@ class ArchiveCommand extends Command
      */
     protected function archiveModel(string $modelClass): ?ArchiveResult
     {
+        /** @var Model&Archivable $model */
         $model = new $modelClass;
 
         if (! method_exists($model, 'prunable')) {
@@ -198,6 +200,7 @@ class ArchiveCommand extends Command
     /**
      * Perform the archive operation.
      *
+     * @param  Model&Archivable  $model
      * @param  Builder<Model>  $query
      */
     protected function performArchive(Model $model, $query): ArchiveResult
