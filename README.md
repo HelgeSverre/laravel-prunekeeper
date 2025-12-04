@@ -1,9 +1,10 @@
-# 🍇 Prunekeeper
+# Prunekeeper 🍇 
 
 **Your database's safety net.**
 
-Don't just prune—preserve. Automatically archive old records to cloud storage before Laravel's `model:prune` wipes them
-out.
+> **Don't just prune — preserve.** <br> Automatically archive old records to cloud storage before Laravel's
+`model:prune` wipes them
+> out.
 
 ## Installation
 
