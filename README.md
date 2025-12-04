@@ -1,4 +1,4 @@
-# Prunekeeper 🍇
+# Prunekeeper
 
 Automatically export Laravel Prunable records to CSV or SQL before `model:prune` deletes them. Never lose historical data again.
 
