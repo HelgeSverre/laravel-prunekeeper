@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace HelgeSverre\Prunekeeper\Exporters;
 
 use HelgeSverre\Prunekeeper\Contracts\Exporter;
+use HelgeSverre\Prunekeeper\Facades\Prunekeeper;
+use HelgeSverre\Prunekeeper\Prunekeeper as PrunekeeperManager;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -13,24 +15,21 @@ class SqlExporter implements Exporter
 {
     public function export(Builder $query, ?array $columns = null): string
     {
-        $tempFile = tempnam(sys_get_temp_dir(), 'prunable_export_');
+        $tempFile = Prunekeeper::createTempFile('prunekeeper_sql_');
 
-        if ($tempFile === false) {
-            throw new RuntimeException('Failed to create temporary file for export');
-        }
-
-        $handle = fopen($tempFile, 'w');
+        $handle = fopen($tempFile, Prunekeeper::getFileOpenMode());
 
         if ($handle === false) {
             throw new RuntimeException('Failed to open temporary file for writing');
         }
 
-        $table = $query->getModel()->getTable();
-        $chunkSize = (int) config('prunekeeper.chunk_size', 1000);
+        $model = $query->getModel();
+        $table = Prunekeeper::resolveTableName($model);
+        $chunkSize = Prunekeeper::getChunkSize();
 
-        fwrite($handle, "-- Prunable archive export\n");
-        fwrite($handle, "-- Table: {$table}\n");
-        fwrite($handle, '-- Generated: '.now()->toIso8601String()."\n");
+        fwrite($handle, sprintf("-- Created with Laravel Prunekeeper (version %s)\n", PrunekeeperManager::version));
+        fwrite($handle, sprintf("-- Table: %s\n", $table));
+        fwrite($handle, sprintf("-- Generated: %s\n", now()->toIso8601String()));
         fwrite($handle, "-- Format: SQL INSERT statements\n\n");
 
         $query->chunk($chunkSize, function ($records) use ($handle, $table, $columns) {

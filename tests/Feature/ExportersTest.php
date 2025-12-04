@@ -152,7 +152,7 @@ describe('SqlExporter', function () {
         $content = file_get_contents($tempFile);
 
         expect($content)
-            ->toContain('-- Prunable archive export')
+            ->toContain('-- Created with Laravel Prunekeeper')
             ->toContain('-- Table: test_prunable_models')
             ->toContain('-- Generated:');
 

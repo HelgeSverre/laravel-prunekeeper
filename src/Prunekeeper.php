@@ -9,9 +9,12 @@ use HelgeSverre\Prunekeeper\Support\ArchiveResult;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
+use RuntimeException;
 
 class Prunekeeper
 {
+    const string version = '1.0.0';
+
     protected ?Closure $filenameGenerator = null;
 
     protected ?Closure $columnsResolver = null;
@@ -20,12 +23,16 @@ class Prunekeeper
 
     protected ?Closure $afterArchive = null;
 
+    protected ?Closure $tempFileGenerator = null;
+
+    protected ?Closure $tableNameResolver = null;
+
     /**
      * Register a custom filename generator callback.
      *
      * @param  callable(Model, string): string  $callback
      */
-    public function generateFilenameUsing(callable $callback): self
+    public function generateFilenameUsing(?callable $callback): self
     {
         $this->filenameGenerator = $callback;
 
@@ -37,7 +44,7 @@ class Prunekeeper
      *
      * @param  callable(Model): array<string>|null  $callback
      */
-    public function resolveColumnsUsing(callable $callback): self
+    public function resolveColumnsUsing(?callable $callback): self
     {
         $this->columnsResolver = $callback;
 
@@ -49,7 +56,7 @@ class Prunekeeper
      *
      * @param  callable(Model): void  $callback
      */
-    public function beforeArchiving(callable $callback): self
+    public function beforeArchiving(?callable $callback): self
     {
         $this->beforeArchive = $callback;
 
@@ -61,7 +68,7 @@ class Prunekeeper
      *
      * @param  callable(Model, ArchiveResult): void  $callback
      */
-    public function afterArchiving(callable $callback): self
+    public function afterArchiving(?callable $callback): self
     {
         $this->afterArchive = $callback;
 
@@ -132,6 +139,70 @@ class Prunekeeper
         if ($this->afterArchive) {
             call_user_func($this->afterArchive, $model, $result);
         }
+    }
+
+    /**
+     * Register a custom temp file generator callback.
+     *
+     * @param  callable(string): string  $callback  Receives prefix, returns file path
+     */
+    public function createTempFileUsing(?callable $callback): self
+    {
+        $this->tempFileGenerator = $callback;
+
+        return $this;
+    }
+
+    /**
+     * Create a temporary file for export.
+     *
+     * @throws RuntimeException
+     */
+    public function createTempFile(string $prefix = 'prunekeeper_export_'): string
+    {
+        if ($this->tempFileGenerator) {
+            return call_user_func($this->tempFileGenerator, $prefix);
+        }
+
+        $tempFile = tempnam(sys_get_temp_dir(), $prefix);
+
+        if ($tempFile === false) {
+            throw new RuntimeException('Failed to create temporary file for export');
+        }
+
+        return $tempFile;
+    }
+
+    /**
+     * Register a custom table name resolver callback.
+     *
+     * @param  callable(Model): string  $callback
+     */
+    public function resolveTableNameUsing(?callable $callback): self
+    {
+        $this->tableNameResolver = $callback;
+
+        return $this;
+    }
+
+    /**
+     * Resolve the table name for a model.
+     */
+    public function resolveTableName(Model $model): string
+    {
+        if ($this->tableNameResolver) {
+            return call_user_func($this->tableNameResolver, $model);
+        }
+
+        return $model->getTable();
+    }
+
+    /**
+     * Get the configured file open mode.
+     */
+    public function getFileOpenMode(): string
+    {
+        return config('prunekeeper.file_open_mode', 'w');
     }
 
     /**

@@ -90,4 +90,15 @@ return [
     |
     */
     'cleanup_temp_files' => true,
+
+    /*
+    |--------------------------------------------------------------------------
+    | File Open Mode
+    |--------------------------------------------------------------------------
+    |
+    | The mode to use when opening temporary files for writing during export.
+    | Common modes: 'w' (write), 'w+' (read/write), 'wb' (binary write).
+    |
+    */
+    'file_open_mode' => env('PRUNEKEEPER_FILE_OPEN_MODE', 'w'),
 ];

@@ -5,23 +5,19 @@ declare(strict_types=1);
 namespace HelgeSverre\Prunekeeper\Exporters;
 
 use HelgeSverre\Prunekeeper\Contracts\Exporter;
+use HelgeSverre\Prunekeeper\Facades\Prunekeeper;
 use Illuminate\Database\Eloquent\Builder;
 use League\Csv\Writer;
-use RuntimeException;
 
 class CsvExporter implements Exporter
 {
     public function export(Builder $query, ?array $columns = null): string
     {
-        $tempFile = tempnam(sys_get_temp_dir(), 'prunable_export_');
-
-        if ($tempFile === false) {
-            throw new RuntimeException('Failed to create temporary file for export');
-        }
+        $tempFile = Prunekeeper::createTempFile('prunekeeper_csv_');
 
         $writer = Writer::createFromPath($tempFile, 'w+');
 
-        $chunkSize = (int) config('prunekeeper.chunk_size', 1000);
+        $chunkSize = Prunekeeper::getChunkSize();
         $headerWritten = false;
 
         $query->chunk($chunkSize, function ($records) use ($writer, $columns, &$headerWritten) {

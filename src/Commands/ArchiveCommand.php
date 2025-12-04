@@ -140,6 +140,8 @@ class ArchiveCommand extends Command
 
     /**
      * Archive a single model.
+     *
+     * @param  class-string  $modelClass
      */
     protected function archiveModel(string $modelClass): ?ArchiveResult
     {
@@ -196,10 +198,9 @@ class ArchiveCommand extends Command
     /**
      * Perform the archive operation.
      *
-     * @param  Model  $model
      * @param  Builder<Model>  $query
      */
-    protected function performArchive($model, $query): ArchiveResult
+    protected function performArchive(Model $model, $query): ArchiveResult
     {
         $exporter = $this->getExporter();
         $columns = $this->prunekeeper->resolveColumns($model);
