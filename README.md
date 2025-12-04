@@ -1,14 +1,12 @@
 # Prunekeeper 🍇
 
+Automatically export Laravel Prunable records to CSV or SQL before `model:prune` deletes them. Never lose historical data again.
+
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/helgeesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgeesverre/laravel-prunekeeper)
 [![Total Downloads](https://img.shields.io/packagist/dt/helgeesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgeesverre/laravel-prunekeeper)
 [![License](https://img.shields.io/packagist/l/helgeesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgeesverre/laravel-prunekeeper)
 
-**Your database's safety net.**
-
-> **Don't just prune — preserve.** <br> Automatically archive old records to cloud storage before Laravel's
-`model:prune` wipes them
-> out.
+---
 
 ## Installation
 
