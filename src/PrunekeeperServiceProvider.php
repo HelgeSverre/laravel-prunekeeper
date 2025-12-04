@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HelgeSverre\Prunekeeper;
 
 use HelgeSverre\Prunekeeper\Commands\ArchiveCommand;
+use HelgeSverre\Prunekeeper\Commands\ValidateCommand;
 use HelgeSverre\Prunekeeper\Contracts\Exporter;
 use HelgeSverre\Prunekeeper\Exporters\CsvExporter;
 use HelgeSverre\Prunekeeper\Exporters\SqlExporter;
@@ -22,7 +23,8 @@ class PrunekeeperServiceProvider extends PackageServiceProvider
         $package
             ->name('laravel-prunekeeper')
             ->hasConfigFile('prunekeeper')
-            ->hasCommand(ArchiveCommand::class);
+            ->hasCommand(ArchiveCommand::class)
+            ->hasCommand(ValidateCommand::class);
     }
 
     public function packageRegistered(): void
