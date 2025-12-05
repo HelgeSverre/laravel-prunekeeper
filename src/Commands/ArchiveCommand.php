@@ -182,6 +182,8 @@ class ArchiveCommand extends Command
             return null;
         }
 
+        $result = null;
+
         $this->components->task("Archiving {$count} records from {$modelClass}", function () use ($model, $query, &$result) {
             $result = $this->performArchive($model, clone $query);
         });
@@ -209,52 +211,81 @@ class ArchiveCommand extends Command
         $columns = $this->prunekeeper->resolveColumns($model);
         $recordCount = $query->count();
 
-        // Export to temporary file
-        $tempFile = $exporter->export(clone $query, $columns);
-        $format = $exporter->extension();
+        $tempFile = null;
+        $compressedFile = null;
+        $stream = null;
 
-        // Determine the storage filename
-        $filename = $model->getArchiveFilename($format)
-            ?? $this->prunekeeper->generateFilename($model, $format);
+        try {
+            // Export to temporary file
+            $tempFile = $exporter->export(clone $query, $columns);
+            $format = $exporter->extension();
 
-        // Compress if enabled
-        $shouldCompress = ! $this->option('no-compress') && $this->prunekeeper->shouldCompress();
-
-        if ($shouldCompress) {
-            $compressedFile = $this->compressor->compress($tempFile, $format);
-
-            if ($this->prunekeeper->shouldCleanupTempFiles()) {
-                @unlink($tempFile);
+            // Validate export produced content
+            if (! file_exists($tempFile) || filesize($tempFile) === 0) {
+                $modelClass = $model::class;
+                throw new RuntimeException(
+                    "Export produced empty file for {$modelClass}. Expected {$recordCount} records."
+                );
             }
 
-            $tempFile = $compressedFile;
+            // Compress if enabled
+            $shouldCompress = ! $this->option('no-compress') && $this->prunekeeper->shouldCompress();
+
+            // Determine the storage filename
+            $filename = $model->getArchiveFilename($format)
+                ?? $this->prunekeeper->generateFilename($model, $format, $shouldCompress);
+
+            $fileToUpload = $tempFile;
+
+            if ($shouldCompress) {
+                $compressedFile = $this->compressor->compress($tempFile, $format);
+                $fileToUpload = $compressedFile;
+            }
+
+            // Get file size before upload
+            $fileSize = filesize($fileToUpload) ?: 0;
+
+            // Upload to storage using stream for memory efficiency
+            $stream = fopen($fileToUpload, 'r');
+
+            if ($stream === false) {
+                $error = error_get_last();
+                throw new RuntimeException(
+                    "Failed to open temporary file: {$fileToUpload}. ".
+                    'Error: '.($error['message'] ?? 'Unknown error')
+                );
+            }
+
+            $uploaded = $this->prunekeeper->disk()->put($filename, $stream);
+
+            if ($uploaded === false) {
+                throw new RuntimeException("Failed to upload archive to storage: {$filename}");
+            }
+
+            return new ArchiveResult(
+                modelClass: get_class($model),
+                storagePath: $filename,
+                recordCount: $recordCount,
+                fileSize: $fileSize,
+                format: $format,
+                compressed: $shouldCompress
+            );
+        } finally {
+            // Always close stream
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+
+            // Cleanup temporary files
+            if ($this->prunekeeper->shouldCleanupTempFiles()) {
+                if ($tempFile !== null && file_exists($tempFile)) {
+                    @unlink($tempFile);
+                }
+                if ($compressedFile !== null && file_exists($compressedFile)) {
+                    @unlink($compressedFile);
+                }
+            }
         }
-
-        // Get file size before upload
-        $fileSize = filesize($tempFile) ?: 0;
-
-        // Upload to storage
-        $contents = file_get_contents($tempFile);
-
-        if ($contents === false) {
-            throw new RuntimeException("Failed to read temporary file: {$tempFile}");
-        }
-
-        $this->prunekeeper->disk()->put($filename, $contents);
-
-        // Cleanup temporary file
-        if ($this->prunekeeper->shouldCleanupTempFiles()) {
-            @unlink($tempFile);
-        }
-
-        return new ArchiveResult(
-            modelClass: get_class($model),
-            storagePath: $filename,
-            recordCount: $recordCount,
-            fileSize: $fileSize,
-            format: $format,
-            compressed: $shouldCompress
-        );
     }
 
     /**
@@ -266,7 +297,8 @@ class ArchiveCommand extends Command
 
         return match ($format) {
             'sql' => app(SqlExporter::class),
-            default => app(CsvExporter::class),
+            'csv' => app(CsvExporter::class),
+            default => throw new \InvalidArgumentException("Invalid export format: {$format}. Use 'csv' or 'sql'."),
         };
     }
 }
