@@ -31,24 +31,31 @@ class SqlExporter implements Exporter
         $table = Prunekeeper::resolveTableName($model);
         $chunkSize = Prunekeeper::getChunkSize();
 
-        fwrite($handle, sprintf("-- Created with Laravel Prunekeeper (version %s)\n", PrunekeeperManager::version));
+        fwrite($handle, sprintf("-- Created with Laravel Prunekeeper (version %s)\n", PrunekeeperManager::VERSION));
         fwrite($handle, sprintf("-- Table: %s\n", $table));
         fwrite($handle, sprintf("-- Generated: %s\n", now()->toIso8601String()));
         fwrite($handle, "-- Format: SQL INSERT statements\n\n");
 
-        $query->chunk($chunkSize, function ($records) use ($handle, $table, $columns) {
+        $connection = $model->getConnectionName();
+
+        $escapedTable = $this->escapeIdentifier($table);
+
+        $query->chunk($chunkSize, function ($records) use ($handle, $escapedTable, $columns, $connection) {
             foreach ($records as $record) {
                 $data = $columns !== null
                     ? collect($record->toArray())->only($columns)->all()
                     : $record->toArray();
 
-                $columnNames = implode('`, `', array_keys($data));
+                $escapedColumnNames = implode(', ', array_map(
+                    fn ($col) => $this->escapeIdentifier($col),
+                    array_keys($data)
+                ));
                 $values = implode(', ', array_map(
-                    fn ($v) => $this->escapeValue($v),
+                    fn ($v) => $this->escapeValue($v, $connection),
                     array_values($data)
                 ));
 
-                fwrite($handle, "INSERT INTO `{$table}` (`{$columnNames}`) VALUES ({$values});\n");
+                fwrite($handle, "INSERT INTO {$escapedTable} ({$escapedColumnNames}) VALUES ({$values});\n");
             }
         });
 
@@ -63,9 +70,17 @@ class SqlExporter implements Exporter
     }
 
     /**
+     * Escape a SQL identifier (table/column name) using backticks.
+     */
+    protected function escapeIdentifier(string $identifier): string
+    {
+        return '`'.str_replace('`', '``', $identifier).'`';
+    }
+
+    /**
      * Escape a value for SQL insertion.
      */
-    protected function escapeValue(mixed $value): string
+    protected function escapeValue(mixed $value, ?string $connection = null): string
     {
         if (is_null($value)) {
             return 'NULL';
@@ -83,6 +98,6 @@ class SqlExporter implements Exporter
             $value = json_encode($value);
         }
 
-        return DB::connection()->getPdo()->quote((string) $value);
+        return DB::connection($connection)->getPdo()->quote((string) $value);
     }
 }
