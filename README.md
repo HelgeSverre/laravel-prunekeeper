@@ -6,6 +6,11 @@ Automatically archive Laravel Prunable records to CSV or SQL before deletion.
 [![Total Downloads](https://img.shields.io/packagist/dt/helgeesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgeesverre/laravel-prunekeeper)
 [![License](https://img.shields.io/packagist/l/helgeesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgeesverre/laravel-prunekeeper)
 
+## Requirements
+
+- PHP 8.2+
+- Laravel 11.x or 12.x
+
 ## Installation
 
 ```bash
@@ -20,7 +25,7 @@ php artisan vendor:publish --provider="HelgeSverre\Prunekeeper\PrunekeeperServic
 
 ## Quick Start
 
-Add the `ArchivePrunedRecords` trait to any model using Laravel's `Prunable` trait:
+Add the `ArchivePrunedRecords` trait to any model using Laravel's `Prunable` or `MassPrunable` trait:
 
 ```php
 <?php
@@ -32,14 +37,54 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Prunable;
 use HelgeSverre\Prunekeeper\ArchivePrunedRecords;
 
-class Activity extends Model
+class Flight extends Model
 {
     use Prunable;
     use ArchivePrunedRecords;
 
+    /**
+     * Get the prunable model query.
+     */
     public function prunable(): Builder
     {
-        return static::where('created_at', '<=', now()->subYear());
+        return static::where('created_at', '<=', now()->subMonth());
+    }
+
+    /**
+     * Prepare the model for pruning.
+     */
+    protected function pruning(): void
+    {
+        // Delete associated files, etc.
+    }
+}
+```
+
+### With MassPrunable
+
+For models that use `MassPrunable` (bulk deletion without model events), Prunekeeper works the same way:
+
+```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\MassPrunable;
+use HelgeSverre\Prunekeeper\ArchivePrunedRecords;
+
+class Flight extends Model
+{
+    use MassPrunable;
+    use ArchivePrunedRecords;
+
+    /**
+     * Get the prunable model query.
+     */
+    public function prunable(): Builder
+    {
+        return static::where('created_at', '<=', now()->subMonth());
     }
 }
 ```
@@ -81,6 +126,13 @@ return [
 ];
 ```
 
+### Export Formats
+
+- **CSV** (default): Portable, database-agnostic format. Recommended for most use cases.
+- **SQL**: Generates MySQL/MariaDB-compatible `INSERT` statements. Useful when you need to restore data directly to a MySQL database.
+
+> **Note:** The SQL export format uses MySQL-specific syntax (backtick-quoted identifiers). For PostgreSQL, SQLite, or SQL Server databases, use the CSV format instead.
+
 ## Artisan Commands
 
 ### Archive Records
@@ -92,7 +144,7 @@ Archive records without deleting them:
 php artisan prunekeeper:archive
 
 # Archive specific model
-php artisan prunekeeper:archive --model="App\Models\Activity"
+php artisan prunekeeper:archive --model="App\Models\Flight"
 
 # Preview what would be archived
 php artisan prunekeeper:archive --pretend
@@ -113,7 +165,7 @@ Validate that all archivable models have valid column configurations:
 php artisan prunekeeper:validate
 
 # Validate specific model
-php artisan prunekeeper:validate --model="App\Models\Activity"
+php artisan prunekeeper:validate --model="App\Models\Flight"
 ```
 
 This command checks that any custom columns specified via `getArchivableColumns()` actually exist in the database. Run this in CI/CD or before deployments to catch configuration errors early.
@@ -125,13 +177,13 @@ This command checks that any custom columns specified via `getArchivableColumns(
 Export only specific columns instead of all columns:
 
 ```php
-class Activity extends Model
+class Flight extends Model
 {
     use Prunable, ArchivePrunedRecords;
 
     public function getArchivableColumns(): ?array
     {
-        return ['id', 'log_name', 'description', 'created_at'];
+        return ['id', 'number', 'destination', 'created_at'];
     }
 }
 ```
@@ -159,13 +211,13 @@ Prunekeeper::generateFilenameUsing(function ($model, $format) {
 Or override per-model:
 
 ```php
-class Activity extends Model
+class Flight extends Model
 {
     use Prunable, ArchivePrunedRecords;
 
     public function getArchiveFilename(string $format): ?string
     {
-        return "activity-logs/{$this->getTable()}-" . now()->format('Y-m-d') . ".{$format}";
+        return "flight-logs/{$this->getTable()}-" . now()->format('Y-m-d') . ".{$format}";
     }
 }
 ```
@@ -193,7 +245,7 @@ Prunekeeper::afterArchiving(function ($model, $result) {
 Disable archiving for specific models or environments:
 
 ```php
-class Activity extends Model
+class Flight extends Model
 {
     use Prunable, ArchivePrunedRecords;
 
@@ -225,9 +277,7 @@ Add to your `routes/console.php`:
 ```php
 use Illuminate\Support\Facades\Schedule;
 
-Schedule::command('model:prune', [
-    '--model' => [Activity::class, AuditLog::class],
-])->daily();
+Schedule::command('model:prune')->daily();
 ```
 
 Or in Laravel 11+ with the scheduler in `bootstrap/app.php`:
@@ -238,11 +288,52 @@ Or in Laravel 11+ with the scheduler in `bootstrap/app.php`:
 })
 ```
 
+You may test your `prunable` query by executing the `model:prune` command with the `--pretend` option:
+
+```bash
+php artisan model:prune --pretend
+```
+
+## Performance Considerations
+
+Prunekeeper is designed to handle large datasets efficiently:
+
+- **Chunked processing**: Records are exported in configurable chunks (default: 1000) to limit memory usage
+- **Streamed uploads**: Files are uploaded using streams, not loaded entirely into memory
+- **Configurable chunk size**: Adjust `PRUNEKEEPER_CHUNK_SIZE` based on your memory constraints and record size
+
+For very large tables (millions of records), consider:
+
+- Running `prunekeeper:archive` during off-peak hours
+- Using a dedicated queue worker for the prune command
+- Increasing `chunk_size` if you have available memory (improves speed)
+
+## Security Recommendations
+
+When archiving data that may contain sensitive information:
+
+1. **Use column filtering**: Implement `getArchivableColumns()` to exclude sensitive fields like passwords, tokens, or PII
+2. **Use secure storage**: Configure your storage disk with appropriate access controls
+3. **Run validation**: Use `prunekeeper:validate` in your CI/CD pipeline to catch configuration errors
+
+```php
+Prunekeeper::resolveColumnsUsing(function ($model) {
+    $sensitiveColumns = ['password', 'remember_token', 'api_key', 'ssn'];
+    $allColumns = Schema::getColumnListing($model->getTable());
+
+    return array_diff($allColumns, $sensitiveColumns);
+});
+```
+
 ## Testing
 
 ```bash
 composer test
 ```
+
+## Changelog
+
+Please see [CHANGELOG](CHANGELOG.md) for more information on what has changed recently.
 
 ## License
 
