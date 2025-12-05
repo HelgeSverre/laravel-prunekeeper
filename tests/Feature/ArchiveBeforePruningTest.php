@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use HelgeSverre\Prunekeeper\Listeners\ArchiveBeforePruning;
 use HelgeSverre\Prunekeeper\Prunekeeper;
+use HelgeSverre\Prunekeeper\Tests\Fixtures\TestMassPrunableModel;
 use HelgeSverre\Prunekeeper\Tests\Fixtures\TestPrunableModel;
 use Illuminate\Database\Events\ModelPruningStarting;
 use Illuminate\Support\Facades\Storage;
@@ -181,4 +182,66 @@ it('handles JSON columns correctly in CSV export', function () {
     expect($content)->toContain('key');
     expect($content)->toContain('value');
     expect($content)->toContain('nested');
+});
+
+it('skips models with ArchivePrunedRecords but without prunable method', function () {
+    // Create a model class with the trait but without Prunable
+    $modelWithTraitButNoPrunable = new class extends \Illuminate\Database\Eloquent\Model
+    {
+        use \HelgeSverre\Prunekeeper\ArchivePrunedRecords;
+
+        protected $table = 'test_prunable_models';
+    };
+
+    TestPrunableModel::create([
+        'name' => 'Old Record',
+        'created_at' => now()->subMonths(2),
+    ]);
+
+    $listener = app(ArchiveBeforePruning::class);
+    $event = new ModelPruningStarting([get_class($modelWithTraitButNoPrunable)]);
+
+    // Should not throw, just skip gracefully
+    $listener->handle($event);
+
+    $files = Storage::disk('local')->files('prunable-exports');
+    expect($files)->toBeEmpty();
+});
+
+it('archives MassPrunable records before pruning', function () {
+    // Create some old records that should be pruned
+    TestMassPrunableModel::create([
+        'name' => 'Old Mass Record 1',
+        'email' => 'old1@example.com',
+        'created_at' => now()->subMonths(2),
+    ]);
+
+    TestMassPrunableModel::create([
+        'name' => 'Old Mass Record 2',
+        'email' => 'old2@example.com',
+        'created_at' => now()->subMonths(3),
+    ]);
+
+    // Create a recent record that should NOT be pruned
+    TestMassPrunableModel::create([
+        'name' => 'New Mass Record',
+        'email' => 'new@example.com',
+        'created_at' => now(),
+    ]);
+
+    $listener = app(ArchiveBeforePruning::class);
+    $event = new ModelPruningStarting([TestMassPrunableModel::class]);
+
+    $listener->handle($event);
+
+    // Check that a file was created in storage
+    $files = Storage::disk('local')->files('prunable-exports');
+    expect($files)->toHaveCount(1);
+
+    // Check that the file contains the old records
+    $content = Storage::disk('local')->get($files[0]);
+    expect($content)
+        ->toContain('Old Mass Record 1')
+        ->toContain('Old Mass Record 2')
+        ->not->toContain('New Mass Record');
 });

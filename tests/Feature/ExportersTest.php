@@ -78,6 +78,34 @@ describe('CsvExporter', function () {
     });
 });
 
+describe('InvalidColumnException', function () {
+    it('throws when specifying non-existent columns', function () {
+        $exporter = new CsvExporter;
+        $query = TestPrunableModel::query();
+
+        $exporter->export($query, ['name', 'non_existent_column']);
+    })->throws(\HelgeSverre\Prunekeeper\Exceptions\InvalidColumnException::class);
+
+    it('provides helpful error message with available columns', function () {
+        $exporter = new CsvExporter;
+        $query = TestPrunableModel::query();
+
+        try {
+            $exporter->export($query, ['name', 'invalid_col']);
+        } catch (\HelgeSverre\Prunekeeper\Exceptions\InvalidColumnException $e) {
+            expect($e->getMessage())
+                ->toContain('invalid_col')
+                ->toContain('name')
+                ->toContain('email')
+                ->toContain('test_prunable_models');
+
+            return;
+        }
+
+        $this->fail('Expected InvalidColumnException was not thrown');
+    });
+});
+
 describe('SqlExporter', function () {
     it('generates valid INSERT statements', function () {
         $exporter = new SqlExporter;
