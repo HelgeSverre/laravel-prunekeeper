@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static PrunekeeperManager afterArchiving(?callable $callback)
  * @method static PrunekeeperManager createTempFileUsing(?callable $callback)
  * @method static PrunekeeperManager resolveTableNameUsing(?callable $callback)
- * @method static string generateFilename(Model $model, string $format)
+ * @method static string generateFilename(Model $model, string $format, ?bool $compressed = null)
  * @method static array|null resolveColumns(Model $model)
  * @method static void validateColumns(Model $model, array $columns)
  * @method static void fireBeforeArchive(Model $model)

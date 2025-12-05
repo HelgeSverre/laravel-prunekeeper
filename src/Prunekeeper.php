@@ -15,7 +15,7 @@ use RuntimeException;
 
 class Prunekeeper
 {
-    const string version = '1.0.0';
+    public const VERSION = '1.0.0';
 
     protected ?Closure $filenameGenerator = null;
 
@@ -79,22 +79,27 @@ class Prunekeeper
 
     /**
      * Generate the storage filename for an archived model.
+     *
+     * @param  bool|null  $compressed  Override compression setting (null uses config)
      */
-    public function generateFilename(Model $model, string $format): string
+    public function generateFilename(Model $model, string $format, ?bool $compressed = null): string
     {
         if ($this->filenameGenerator) {
             return call_user_func($this->filenameGenerator, $model, $format);
         }
 
-        $extension = config('prunekeeper.compress', true)
+        $compressed ??= $this->shouldCompress();
+
+        $extension = $compressed
             ? "{$format}.zip"
             : $format;
 
         return sprintf(
-            '%s/%s-%s.%s',
+            '%s/%s-%s-%s.%s',
             config('prunekeeper.path', 'prunable-exports'),
             now()->format('Y-m-d_His'),
             $model->getTable(),
+            substr(uniqid(), -6),
             $extension
         );
     }
@@ -261,10 +266,23 @@ class Prunekeeper
 
     /**
      * Get the configured chunk size.
+     *
+     * Returns a value between 1 and 10000 to prevent issues with
+     * invalid configuration values.
      */
     public function getChunkSize(): int
     {
-        return (int) config('prunekeeper.chunk_size', 1000);
+        $chunkSize = (int) config('prunekeeper.chunk_size', 1000);
+
+        if ($chunkSize < 1) {
+            return 1000;
+        }
+
+        if ($chunkSize > 10000) {
+            return 10000;
+        }
+
+        return $chunkSize;
     }
 
     /**
