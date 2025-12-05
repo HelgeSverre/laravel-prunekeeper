@@ -52,13 +52,18 @@ class ArchiveBeforePruning
         /** @var Model&Archivable $model */
         $model = new $modelClass;
 
+        if (! method_exists($model, 'prunable')) {
+            Log::warning("[Prunekeeper] {$modelClass} uses ArchivePrunedRecords but has no prunable() method.");
+
+            return;
+        }
+
         if (! $model->shouldArchiveBeforePruning()) {
             Log::debug("[Prunekeeper] Skipping {$modelClass} - archiving disabled");
 
             return;
         }
 
-        /** @phpstan-ignore method.notFound (prunable() comes from Laravel's Prunable trait) */
         $query = $model->prunable();
 
         // Include soft-deleted records if the model uses SoftDeletes
@@ -110,51 +115,84 @@ class ArchiveBeforePruning
         $columns = $this->archivedPrunables->resolveColumns($model);
         $recordCount = $query->count();
 
-        // Export to temporary file
-        $tempFile = $this->exporter->export(clone $query, $columns);
-        $format = $this->exporter->extension();
+        $tempFile = null;
+        $compressedFile = null;
+        $stream = null;
 
-        // Determine the storage filename
-        $filename = $model->getArchiveFilename($format)
-            ?? $this->archivedPrunables->generateFilename($model, $format);
+        try {
+            // Export to temporary file
+            $tempFile = $this->exporter->export(clone $query, $columns);
+            $format = $this->exporter->extension();
 
-        // Compress if enabled
-        $shouldCompress = $this->archivedPrunables->shouldCompress();
-
-        if ($shouldCompress) {
-            $compressedFile = $this->compressor->compress($tempFile, $format);
-
-            if ($this->archivedPrunables->shouldCleanupTempFiles()) {
-                @unlink($tempFile);
+            // Validate export produced content
+            if (! file_exists($tempFile) || filesize($tempFile) === 0) {
+                $modelClass = $model::class;
+                throw new RuntimeException(
+                    "Export produced empty file for {$modelClass}. Expected {$recordCount} records."
+                );
             }
 
-            $tempFile = $compressedFile;
+            // Compress if enabled
+            $shouldCompress = $this->archivedPrunables->shouldCompress();
+
+            // Determine the storage filename
+            $filename = $model->getArchiveFilename($format)
+                ?? $this->archivedPrunables->generateFilename($model, $format, $shouldCompress);
+
+            $fileToUpload = $tempFile;
+
+            if ($shouldCompress) {
+                $compressedFile = $this->compressor->compress($tempFile, $format);
+                $fileToUpload = $compressedFile;
+            }
+
+            // Get file size before upload
+            $fileSize = filesize($fileToUpload) ?: 0;
+
+            // Upload to storage using stream for memory efficiency
+            $stream = fopen($fileToUpload, 'r');
+
+            if ($stream === false) {
+                $error = error_get_last();
+                throw new RuntimeException(
+                    "Failed to open temporary file: {$fileToUpload}. ".
+                    'Error: '.($error['message'] ?? 'Unknown error')
+                );
+            }
+
+            $uploaded = $this->archivedPrunables->disk()->put($filename, $stream);
+
+            if ($uploaded === false) {
+                throw new RuntimeException("Failed to upload archive to storage: {$filename}");
+            }
+
+            return new ArchiveResult(
+                modelClass: $model::class,
+                storagePath: $filename,
+                recordCount: $recordCount,
+                fileSize: $fileSize,
+                format: $format,
+                compressed: $shouldCompress
+            );
+        } finally {
+            // Always close stream
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+
+            // Cleanup temporary files
+            if ($this->archivedPrunables->shouldCleanupTempFiles()) {
+                if ($tempFile !== null && file_exists($tempFile)) {
+                    if (! @unlink($tempFile)) {
+                        Log::warning("[Prunekeeper] Failed to delete temporary file: {$tempFile}");
+                    }
+                }
+                if ($compressedFile !== null && file_exists($compressedFile)) {
+                    if (! @unlink($compressedFile)) {
+                        Log::warning("[Prunekeeper] Failed to delete compressed file: {$compressedFile}");
+                    }
+                }
+            }
         }
-
-        // Get file size before upload
-        $fileSize = filesize($tempFile) ?: 0;
-
-        // Upload to storage
-        $contents = file_get_contents($tempFile);
-
-        if ($contents === false) {
-            throw new RuntimeException("Failed to read temporary file: {$tempFile}");
-        }
-
-        $this->archivedPrunables->disk()->put($filename, $contents);
-
-        // Cleanup temporary file
-        if ($this->archivedPrunables->shouldCleanupTempFiles()) {
-            @unlink($tempFile);
-        }
-
-        return new ArchiveResult(
-            modelClass: $model::class,
-            storagePath: $filename,
-            recordCount: $recordCount,
-            fileSize: $fileSize,
-            format: $format,
-            compressed: $shouldCompress
-        );
     }
 }
