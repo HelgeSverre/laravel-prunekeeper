@@ -43,6 +43,11 @@ trait ArchivePrunedRecords
      * Get a custom filename for this model's archive.
      *
      * Return null to use the default filename generator.
+     *
+     * Note: $format is the underlying export format (e.g. "csv" or "sql").
+     * If compression is enabled, Prunekeeper will still use the returned
+     * filename as-is for the ZIP file, so you may want to include ".zip"
+     * yourself if needed.
      */
     public function getArchiveFilename(string $format): ?string
     {
