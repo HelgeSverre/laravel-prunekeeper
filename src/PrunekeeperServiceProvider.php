@@ -7,12 +7,9 @@ namespace HelgeSverre\Prunekeeper;
 use HelgeSverre\Prunekeeper\Commands\ArchiveCommand;
 use HelgeSverre\Prunekeeper\Commands\ValidateCommand;
 use HelgeSverre\Prunekeeper\Contracts\Exporter;
-use HelgeSverre\Prunekeeper\Exporters\CsvExporter;
-use HelgeSverre\Prunekeeper\Exporters\SqlExporter;
 use HelgeSverre\Prunekeeper\Listeners\ArchiveBeforePruning;
 use Illuminate\Database\Events\ModelPruningStarting;
 use Illuminate\Support\Facades\Event;
-use InvalidArgumentException;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
@@ -31,19 +28,7 @@ class PrunekeeperServiceProvider extends PackageServiceProvider
     {
         $this->app->singleton(Prunekeeper::class);
 
-        $this->app->bind(Exporter::class, function ($app) {
-            $format = config('prunekeeper.format', 'csv');
-
-            if (is_string($format)) {
-                $format = strtolower($format);
-            }
-
-            return match ($format) {
-                'sql' => $app->make(SqlExporter::class),
-                'csv' => $app->make(CsvExporter::class),
-                default => throw new InvalidArgumentException("Unsupported export format: {$format}"),
-            };
-        });
+        $this->app->bind(Exporter::class, fn ($app) => $app->make(Prunekeeper::class)->makeExporter());
     }
 
     public function packageBooted(): void

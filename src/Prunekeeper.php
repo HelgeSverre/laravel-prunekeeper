@@ -4,13 +4,25 @@ declare(strict_types=1);
 
 namespace HelgeSverre\Prunekeeper;
 
+use HelgeSverre\Prunekeeper\Contracts\Archivable;
+use HelgeSverre\Prunekeeper\Contracts\Exporter;
+use HelgeSverre\Prunekeeper\Events\ArchiveCompleted;
+use HelgeSverre\Prunekeeper\Events\ArchiveFailed;
+use HelgeSverre\Prunekeeper\Events\ArchiveSkipped;
+use HelgeSverre\Prunekeeper\Events\ArchiveStarting;
 use HelgeSverre\Prunekeeper\Exceptions\InvalidColumnException;
+use HelgeSverre\Prunekeeper\Exporters\CsvExporter;
+use HelgeSverre\Prunekeeper\Exporters\SqlExporter;
 use HelgeSverre\Prunekeeper\Support\ArchiveResult;
+use HelgeSverre\Prunekeeper\Support\FileCompressor;
 use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use InvalidArgumentException;
 use RuntimeException;
+use Throwable;
 
 class Prunekeeper
 {
@@ -158,23 +170,47 @@ class Prunekeeper
     }
 
     /**
-     * Fire the before archive callback.
+     * Fire the before archive callback and dispatch event.
      */
-    public function fireBeforeArchive(Model $model): void
+    public function fireBeforeArchive(Model $model, int $recordCount = 0): void
     {
+        // Fire legacy callback (backward compatible)
         if ($this->beforeArchive) {
             call_user_func($this->beforeArchive, $model);
         }
+
+        // Dispatch Laravel event
+        ArchiveStarting::dispatch($model, $recordCount);
     }
 
     /**
-     * Fire the after archive callback.
+     * Fire the after archive callback and dispatch event.
      */
     public function fireAfterArchive(Model $model, ArchiveResult $result): void
     {
+        // Fire legacy callback (backward compatible)
         if ($this->afterArchive) {
             call_user_func($this->afterArchive, $model, $result);
         }
+
+        // Dispatch Laravel event
+        ArchiveCompleted::dispatch($model, $result);
+    }
+
+    /**
+     * Fire the archive failed event.
+     */
+    public function fireArchiveFailed(Model $model, Throwable $exception): void
+    {
+        ArchiveFailed::dispatch($model, $exception);
+    }
+
+    /**
+     * Fire the archive skipped event.
+     */
+    public function fireArchiveSkipped(Model $model, string $reason): void
+    {
+        ArchiveSkipped::dispatch($model, $reason);
     }
 
     /**
@@ -276,6 +312,24 @@ class Prunekeeper
     }
 
     /**
+     * Create an exporter instance for the given format.
+     *
+     * @throws InvalidArgumentException
+     */
+    public function makeExporter(?string $format = null): Exporter
+    {
+        $format = strtolower($format ?? $this->getFormat());
+
+        return match ($format) {
+            'csv' => app(CsvExporter::class),
+            'sql' => app(SqlExporter::class),
+            default => throw new InvalidArgumentException(
+                "Invalid export format: {$format}. Use 'csv' or 'sql'."
+            ),
+        };
+    }
+
+    /**
      * Get the configured chunk size.
      *
      * Returns a value between 1 and 10000. Invalid or out-of-range
@@ -310,5 +364,104 @@ class Prunekeeper
     public function shouldCleanupTempFiles(): bool
     {
         return (bool) config('prunekeeper.cleanup_temp_files', true);
+    }
+
+    /**
+     * Archive records from a prunable query.
+     *
+     * @param  Model&Archivable  $model
+     * @param  Builder<Model>  $query
+     * @param  callable(string): void|null  $onCleanupError  Callback when temp file cleanup fails
+     */
+    public function archive(
+        Model $model,
+        Builder $query,
+        Exporter $exporter,
+        bool $shouldCompress = true,
+        ?callable $onCleanupError = null
+    ): ArchiveResult {
+        $columns = $this->resolveColumns($model);
+        $recordCount = $query->count();
+
+        $tempFile = null;
+        $compressedFile = null;
+        $stream = null;
+
+        try {
+            // Export to temporary file
+            $tempFile = $exporter->export(clone $query, $columns);
+            $format = $exporter->extension();
+
+            // Validate export produced content
+            if (! file_exists($tempFile) || filesize($tempFile) === 0) {
+                $modelClass = $model::class;
+                throw new RuntimeException(
+                    "Export produced empty file for {$modelClass}. Expected {$recordCount} records."
+                );
+            }
+
+            // Determine the storage filename
+            $filename = $model->getArchiveFilename($format)
+                ?? $this->generateFilename($model, $format, $shouldCompress);
+
+            $fileToUpload = $tempFile;
+
+            if ($shouldCompress) {
+                $compressedFile = FileCompressor::compress($tempFile, $format);
+                $fileToUpload = $compressedFile;
+            }
+
+            // Get file size before upload
+            $fileSize = filesize($fileToUpload) ?: 0;
+
+            // Upload to storage using stream for memory efficiency
+            $stream = fopen($fileToUpload, 'r');
+
+            if ($stream === false) {
+                $error = error_get_last();
+                throw new RuntimeException(
+                    "Failed to open temporary file: {$fileToUpload}. ".
+                    'Error: '.($error['message'] ?? 'Unknown error')
+                );
+            }
+
+            $uploaded = $this->disk()->put($filename, $stream);
+
+            if ($uploaded === false) {
+                throw new RuntimeException("Failed to upload archive to storage: {$filename}");
+            }
+
+            return new ArchiveResult(
+                modelClass: $model::class,
+                storagePath: $filename,
+                recordCount: $recordCount,
+                fileSize: $fileSize,
+                format: $format,
+                compressed: $shouldCompress
+            );
+        } finally {
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+
+            if ($this->shouldCleanupTempFiles()) {
+                $this->cleanupTempFile($tempFile, $onCleanupError);
+                $this->cleanupTempFile($compressedFile, $onCleanupError);
+            }
+        }
+    }
+
+    /**
+     * Clean up a temporary file.
+     */
+    private function cleanupTempFile(?string $file, ?callable $onError): void
+    {
+        if ($file === null || ! file_exists($file)) {
+            return;
+        }
+
+        if (! @unlink($file) && $onError !== null) {
+            $onError($file);
+        }
     }
 }

@@ -7,6 +7,7 @@ namespace HelgeSverre\Prunekeeper\Support;
 use RuntimeException;
 use ZipArchive;
 
+// TODO: support other compression formats (like tar.gz, 7z, etc) if needed in the future
 class FileCompressor
 {
     /**
@@ -18,7 +19,7 @@ class FileCompressor
      *
      * @throws RuntimeException If compression fails
      */
-    public function compress(string $filePath, string $extension): string
+    public static function compress(string $filePath, string $extension): string
     {
         $zipPath = $filePath.'.zip';
         $zip = new ZipArchive;
@@ -30,7 +31,7 @@ class FileCompressor
         }
 
         // Generate a meaningful filename inside the zip
-        $innerFilename = $this->generateInnerFilename($filePath, $extension);
+        $innerFilename = self::generateInnerFilename($filePath, $extension);
 
         if (! $zip->addFile($filePath, $innerFilename)) {
             $zip->close();
@@ -45,7 +46,7 @@ class FileCompressor
     /**
      * Generate a meaningful filename for the file inside the zip.
      */
-    protected function generateInnerFilename(string $filePath, string $extension): string
+    protected static function generateInnerFilename(string $filePath, string $extension): string
     {
         // Extract date and table name from the temp filename if possible
         // Default to a generic name with the proper extension

@@ -4,10 +4,15 @@ declare(strict_types=1);
 
 namespace HelgeSverre\Prunekeeper\Support;
 
+use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Support\Number;
+
 /**
- * Data transfer object representing the result of an archive operation.
+ * Result of an archive operation.
+ *
+ * @implements Arrayable<string, string|int|bool>
  */
-readonly class ArchiveResult
+readonly class ArchiveResult implements Arrayable
 {
     public function __construct(
         public string $modelClass,
@@ -47,13 +52,6 @@ readonly class ArchiveResult
      */
     public function humanFileSize(): string
     {
-        $bytes = $this->fileSize;
-        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
-
-        for ($i = 0; $bytes > 1024 && $i < count($units) - 1; $i++) {
-            $bytes /= 1024;
-        }
-
-        return round($bytes, 2).' '.$units[$i];
+        return Number::fileSize($this->fileSize, maxPrecision: 2);
     }
 }
