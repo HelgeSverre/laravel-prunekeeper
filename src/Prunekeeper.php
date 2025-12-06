@@ -27,7 +27,7 @@ use Throwable;
 
 class Prunekeeper
 {
-    public const VERSION = '1.0.0';
+    public const VERSION = '2.0.0';
 
     /** @var (callable(Model, string): string)|null */
     protected static $filenameGenerator = null;

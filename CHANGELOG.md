@@ -2,7 +2,7 @@
 
 All notable changes to `laravel-prunekeeper` will be documented in this file.
 
-## [Unreleased]
+## [2.0.0] - 2025-06-06
 
 ### Changed
 
