@@ -4,4 +4,4 @@
 /.phpunit.cache
 .phpunit.result.cache
 composer.lock
-wip/*wip/
+wip/*
