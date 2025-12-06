@@ -26,6 +26,7 @@ All notable changes to `laravel-prunekeeper` will be documented in this file.
 
 - TarGzip driver now checks `phar.readonly` INI setting in `isAvailable()`
 - Compression drivers clean up partial files on failure
+- Exporters now clean up temp files on failure (prevents orphaned files in long-running workers)
 
 ### Removed
 
