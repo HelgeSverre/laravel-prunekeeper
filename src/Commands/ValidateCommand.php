@@ -19,12 +19,6 @@ class ValidateCommand extends Command
 
     protected $description = 'Validate column configuration for archivable models';
 
-    public function __construct(
-        protected Prunekeeper $prunekeeper
-    ) {
-        parent::__construct();
-    }
-
     public function handle(): int
     {
         $models = $this->getModels();
@@ -97,7 +91,7 @@ class ValidateCommand extends Command
         $model = new $modelClass;
         $table = $model->getTable();
 
-        $columns = $this->prunekeeper->resolveColumns($model);
+        $columns = Prunekeeper::resolveColumns($model);
 
         if ($columns === null) {
             return [

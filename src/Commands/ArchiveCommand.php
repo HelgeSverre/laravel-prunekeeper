@@ -12,7 +12,6 @@ use HelgeSverre\Prunekeeper\Support\ArchiveResult;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Collection;
 use Throwable;
 
@@ -32,12 +31,6 @@ class ArchiveCommand extends Command
      * The console command description.
      */
     protected $description = 'Archive prunable model records without deleting them';
-
-    public function __construct(
-        protected Prunekeeper $prunekeeper
-    ) {
-        parent::__construct();
-    }
 
     /**
      * Execute the console command.
@@ -103,51 +96,45 @@ class ArchiveCommand extends Command
 
         if (! method_exists($model, 'prunable')) {
             $this->components->warn("{$modelClass} does not have a prunable() method.");
-            $this->prunekeeper->fireArchiveSkipped($model, ArchiveSkipped::REASON_NO_PRUNABLE_METHOD);
+            Prunekeeper::fireArchiveSkipped($model, ArchiveSkipped::REASON_NO_PRUNABLE_METHOD);
 
             return null;
         }
 
         if (! $model->shouldArchiveBeforePruning()) {
             $this->components->warn("{$modelClass} has archiving disabled.");
-            $this->prunekeeper->fireArchiveSkipped($model, ArchiveSkipped::REASON_DISABLED);
+            Prunekeeper::fireArchiveSkipped($model, ArchiveSkipped::REASON_DISABLED);
 
             return null;
         }
 
-        $query = $model->prunable();
-
-        // Include soft-deleted records if applicable
-        if (in_array(SoftDeletes::class, class_uses_recursive($modelClass))) {
-            $query->withTrashed();
-        }
-
+        $query = Prunekeeper::makePrunableQuery($model);
         $count = $query->count();
 
         if ($count === 0) {
             $this->components->info("{$modelClass}: No prunable records found.");
-            $this->prunekeeper->fireArchiveSkipped($model, ArchiveSkipped::REASON_NO_RECORDS);
+            Prunekeeper::fireArchiveSkipped($model, ArchiveSkipped::REASON_NO_RECORDS);
 
             return null;
         }
 
         if ($this->option('pretend')) {
             $this->components->info("{$modelClass}: {$count} records would be archived.");
-            $this->prunekeeper->fireArchiveSkipped($model, ArchiveSkipped::REASON_PRETEND_MODE);
+            Prunekeeper::fireArchiveSkipped($model, ArchiveSkipped::REASON_PRETEND_MODE);
 
             return null;
         }
 
         $result = null;
 
-        $this->prunekeeper->fireBeforeArchive($model, $count);
+        Prunekeeper::fireBeforeArchive($model, $count);
 
         $this->components->task("Archiving {$count} records from {$modelClass}", function () use ($model, $query, &$result) {
             try {
                 $result = $this->performArchive($model, clone $query);
-                $this->prunekeeper->fireAfterArchive($model, $result);
+                Prunekeeper::fireAfterArchive($model, $result);
             } catch (Throwable $e) {
-                $this->prunekeeper->fireArchiveFailed($model, $e);
+                Prunekeeper::fireArchiveFailed($model, $e);
                 throw $e;
             }
         });
@@ -179,10 +166,10 @@ class ArchiveCommand extends Command
     protected function performArchive(Model $model, Builder $query): ArchiveResult
     {
         $format = $this->option('format');
-        $exporter = $this->prunekeeper->makeExporter(is_string($format) ? $format : null);
-        $shouldCompress = ! $this->option('no-compress') && $this->prunekeeper->shouldCompress();
+        $exporter = Prunekeeper::makeExporter(is_string($format) ? $format : null);
+        $shouldCompress = ! $this->option('no-compress') && Prunekeeper::shouldCompress();
 
-        return $this->prunekeeper->archive($model, $query, $exporter, $shouldCompress);
+        return Prunekeeper::archive($model, $query, $exporter, $shouldCompress);
     }
 
     /**
@@ -196,6 +183,6 @@ class ArchiveCommand extends Command
             return $driver;
         }
 
-        return $this->prunekeeper->compression()->getDefaultDriver();
+        return Prunekeeper::compression()->getDefaultDriver();
     }
 }
