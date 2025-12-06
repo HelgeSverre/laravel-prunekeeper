@@ -107,8 +107,11 @@ return [
     // Export format: 'csv' or 'sql'
     'format' => env('PRUNEKEEPER_FORMAT', 'csv'),
 
-    // Compress exports using ZIP
-    'compress' => env('PRUNEKEEPER_COMPRESS', true),
+    // Compression settings
+    'compression' => [
+        'enabled' => env('PRUNEKEEPER_COMPRESS', true),
+        'driver' => env('PRUNEKEEPER_COMPRESSION_DRIVER', 'zip'), // zip, gzip, targz, bzip2
+    ],
 
     // Records per chunk when exporting
     'chunk_size' => env('PRUNEKEEPER_CHUNK_SIZE', 1000),
