@@ -156,6 +156,8 @@ services:
   php:
     build: .
     container_name: prunekeeper-php
+    environment:
+      DOCKER_ENV: "true"
     volumes:
       - .:/app
     working_dir: /app

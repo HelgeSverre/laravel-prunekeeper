@@ -22,6 +22,9 @@ RUN docker-php-ext-install \
 # Install pcov for code coverage (faster than xdebug)
 RUN pecl install pcov && docker-php-ext-enable pcov
 
+# Enable phar writing for TarGzip compression tests
+RUN echo "phar.readonly=0" > /usr/local/etc/php/conf.d/phar.ini
+
 # Copy composer from official image
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
