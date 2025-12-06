@@ -120,3 +120,160 @@ it('returns configured chunk size', function () {
     config(['prunekeeper.chunk_size' => 2000]);
     expect($manager->getChunkSize())->toBe(2000);
 });
+
+it('returns default chunk size when configured value is less than 1', function () {
+    $manager = new Prunekeeper;
+
+    config(['prunekeeper.chunk_size' => 0]);
+    expect($manager->getChunkSize())->toBe(1000);
+
+    config(['prunekeeper.chunk_size' => -5]);
+    expect($manager->getChunkSize())->toBe(1000);
+});
+
+it('caps chunk size at 10000 when configured value exceeds maximum', function () {
+    $manager = new Prunekeeper;
+
+    config(['prunekeeper.chunk_size' => 15000]);
+    expect($manager->getChunkSize())->toBe(10000);
+
+    config(['prunekeeper.chunk_size' => 100000]);
+    expect($manager->getChunkSize())->toBe(10000);
+});
+
+it('uses custom table name resolver when set', function () {
+    $manager = new Prunekeeper;
+    $model = new TestPrunableModel;
+
+    $manager->resolveTableNameUsing(function ($model) {
+        return 'custom_table_name';
+    });
+
+    expect($manager->resolveTableName($model))->toBe('custom_table_name');
+});
+
+it('returns default table name when no resolver is set', function () {
+    $manager = new Prunekeeper;
+    $model = new TestPrunableModel;
+
+    expect($manager->resolveTableName($model))->toBe('test_prunable_models');
+});
+
+it('uses custom temp file generator when set', function () {
+    $manager = new Prunekeeper;
+    $customPath = sys_get_temp_dir().'/custom_temp_file_'.uniqid();
+
+    $manager->createTempFileUsing(function ($prefix) use ($customPath) {
+        file_put_contents($customPath, '');
+
+        return $customPath;
+    });
+
+    $result = $manager->createTempFile('test_');
+    expect($result)->toBe($customPath);
+
+    @unlink($customPath);
+});
+
+it('creates temp file in system temp directory by default', function () {
+    $manager = new Prunekeeper;
+
+    $tempFile = $manager->createTempFile('prunekeeper_test_');
+
+    // Use realpath to handle macOS symlinks (/var -> /private/var)
+    $tempDir = realpath(sys_get_temp_dir());
+    $actualPath = realpath(dirname($tempFile));
+
+    expect($actualPath)->toBe($tempDir);
+    expect(file_exists($tempFile))->toBeTrue();
+
+    @unlink($tempFile);
+});
+
+it('respects shouldCompress config', function () {
+    $manager = new Prunekeeper;
+
+    config(['prunekeeper.compress' => true]);
+    expect($manager->shouldCompress())->toBeTrue();
+
+    config(['prunekeeper.compress' => false]);
+    expect($manager->shouldCompress())->toBeFalse();
+});
+
+it('respects shouldCleanupTempFiles config', function () {
+    $manager = new Prunekeeper;
+
+    config(['prunekeeper.cleanup_temp_files' => true]);
+    expect($manager->shouldCleanupTempFiles())->toBeTrue();
+
+    config(['prunekeeper.cleanup_temp_files' => false]);
+    expect($manager->shouldCleanupTempFiles())->toBeFalse();
+});
+
+it('returns configured file open mode', function () {
+    $manager = new Prunekeeper;
+
+    config(['prunekeeper.file_open_mode' => 'w']);
+    expect($manager->getFileOpenMode())->toBe('w');
+
+    config(['prunekeeper.file_open_mode' => 'a']);
+    expect($manager->getFileOpenMode())->toBe('a');
+});
+
+it('validates columns against model table', function () {
+    $manager = new Prunekeeper;
+    $model = new TestPrunableModel;
+
+    // Valid columns should not throw
+    $manager->validateColumns($model, ['id', 'name', 'email']);
+
+    expect(true)->toBeTrue();
+});
+
+it('throws InvalidColumnException for invalid columns', function () {
+    $manager = new Prunekeeper;
+    $model = new TestPrunableModel;
+
+    $manager->validateColumns($model, ['id', 'invalid_column']);
+})->throws(\HelgeSverre\Prunekeeper\Exceptions\InvalidColumnException::class);
+
+it('fires before archive callback', function () {
+    $manager = new Prunekeeper;
+    $model = new TestPrunableModel;
+    $callbackFired = false;
+
+    $manager->beforeArchiving(function ($m) use (&$callbackFired) {
+        $callbackFired = true;
+        expect($m)->toBeInstanceOf(TestPrunableModel::class);
+    });
+
+    $manager->fireBeforeArchive($model);
+
+    expect($callbackFired)->toBeTrue();
+});
+
+it('fires after archive callback with result', function () {
+    $manager = new Prunekeeper;
+    $model = new TestPrunableModel;
+    $callbackFired = false;
+    $receivedResult = null;
+
+    $result = new \HelgeSverre\Prunekeeper\Support\ArchiveResult(
+        modelClass: TestPrunableModel::class,
+        storagePath: 'test/path.csv',
+        recordCount: 10,
+        fileSize: 1024,
+        format: 'csv',
+        compressed: false
+    );
+
+    $manager->afterArchiving(function ($m, $r) use (&$callbackFired, &$receivedResult) {
+        $callbackFired = true;
+        $receivedResult = $r;
+    });
+
+    $manager->fireAfterArchive($model, $result);
+
+    expect($callbackFired)->toBeTrue();
+    expect($receivedResult)->toBe($result);
+});

@@ -245,3 +245,197 @@ it('archives MassPrunable records before pruning', function () {
         ->toContain('Old Mass Record 2')
         ->not->toContain('New Mass Record');
 });
+
+it('skips archiving when model shouldArchiveBeforePruning returns false', function () {
+    // Create a model class that returns false from shouldArchiveBeforePruning
+    $modelClass = new class extends \Illuminate\Database\Eloquent\Model
+    {
+        use \HelgeSverre\Prunekeeper\ArchivePrunedRecords;
+        use \Illuminate\Database\Eloquent\Prunable;
+
+        protected $table = 'test_prunable_models';
+
+        protected $guarded = [];
+
+        public function shouldArchiveBeforePruning(): bool
+        {
+            return false;
+        }
+
+        public function prunable()
+        {
+            return self::where('created_at', '<=', now()->subMonth());
+        }
+    };
+
+    // Create a record that would be pruned
+    TestPrunableModel::create([
+        'name' => 'Old Record',
+        'created_at' => now()->subMonths(2),
+    ]);
+
+    $listener = app(ArchiveBeforePruning::class);
+    $event = new ModelPruningStarting([get_class($modelClass)]);
+
+    $listener->handle($event);
+
+    $files = Storage::disk('local')->files('prunable-exports');
+    expect($files)->toBeEmpty();
+});
+
+it('uses model getArchiveFilename method for custom filename', function () {
+    // Create a model class with custom filename
+    $modelClass = new class extends \Illuminate\Database\Eloquent\Model
+    {
+        use \HelgeSverre\Prunekeeper\ArchivePrunedRecords;
+        use \Illuminate\Database\Eloquent\Prunable;
+
+        protected $table = 'test_prunable_models';
+
+        protected $guarded = [];
+
+        public function getArchiveFilename(string $format): ?string
+        {
+            return "custom-model-path/my-archive.{$format}";
+        }
+
+        public function prunable()
+        {
+            return self::where('created_at', '<=', now()->subMonth());
+        }
+    };
+
+    TestPrunableModel::create([
+        'name' => 'Old Record',
+        'created_at' => now()->subMonths(2),
+    ]);
+
+    $listener = app(ArchiveBeforePruning::class);
+    $event = new ModelPruningStarting([get_class($modelClass)]);
+
+    $listener->handle($event);
+
+    expect(Storage::disk('local')->exists('custom-model-path/my-archive.csv'))->toBeTrue();
+});
+
+it('includes soft-deleted records when model uses SoftDeletes', function () {
+    $softDeletableModel = new \HelgeSverre\Prunekeeper\Tests\Fixtures\TestSoftDeletableModel;
+
+    // Create a regular old record
+    \HelgeSverre\Prunekeeper\Tests\Fixtures\TestSoftDeletableModel::create([
+        'name' => 'Regular Old Record',
+        'email' => 'regular@example.com',
+        'created_at' => now()->subMonths(2),
+    ]);
+
+    // Create a soft-deleted old record
+    $softDeleted = \HelgeSverre\Prunekeeper\Tests\Fixtures\TestSoftDeletableModel::create([
+        'name' => 'Soft Deleted Record',
+        'email' => 'deleted@example.com',
+        'created_at' => now()->subMonths(2),
+    ]);
+    $softDeleted->delete();
+
+    // Create a recent record that should NOT be pruned
+    \HelgeSverre\Prunekeeper\Tests\Fixtures\TestSoftDeletableModel::create([
+        'name' => 'New Record',
+        'email' => 'new@example.com',
+        'created_at' => now(),
+    ]);
+
+    $listener = app(ArchiveBeforePruning::class);
+    $event = new ModelPruningStarting([\HelgeSverre\Prunekeeper\Tests\Fixtures\TestSoftDeletableModel::class]);
+
+    $listener->handle($event);
+
+    $files = Storage::disk('local')->files('prunable-exports');
+    expect($files)->toHaveCount(1);
+
+    $content = Storage::disk('local')->get($files[0]);
+    expect($content)
+        ->toContain('Regular Old Record')
+        ->toContain('Soft Deleted Record')
+        ->not->toContain('New Record');
+});
+
+it('throws exception when fail_silently is false and archive fails', function () {
+    config(['prunekeeper.fail_silently' => false]);
+
+    // Mock the exporter to throw an exception
+    $mockExporter = Mockery::mock(\HelgeSverre\Prunekeeper\Contracts\Exporter::class);
+    $mockExporter->shouldReceive('export')->andThrow(new \RuntimeException('Export failed'));
+    $mockExporter->shouldReceive('extension')->andReturn('csv');
+
+    app()->instance(\HelgeSverre\Prunekeeper\Contracts\Exporter::class, $mockExporter);
+
+    TestPrunableModel::create([
+        'name' => 'Old Record',
+        'created_at' => now()->subMonths(2),
+    ]);
+
+    $listener = app(ArchiveBeforePruning::class);
+    $event = new ModelPruningStarting([TestPrunableModel::class]);
+
+    $listener->handle($event);
+})->throws(\RuntimeException::class, 'Export failed');
+
+it('catches exception and logs when fail_silently is true', function () {
+    config(['prunekeeper.fail_silently' => true]);
+
+    // Mock the exporter to throw an exception
+    $mockExporter = Mockery::mock(\HelgeSverre\Prunekeeper\Contracts\Exporter::class);
+    $mockExporter->shouldReceive('export')->andThrow(new \RuntimeException('Export failed'));
+    $mockExporter->shouldReceive('extension')->andReturn('csv');
+
+    app()->instance(\HelgeSverre\Prunekeeper\Contracts\Exporter::class, $mockExporter);
+
+    \Illuminate\Support\Facades\Log::shouldReceive('info')->once();
+    \Illuminate\Support\Facades\Log::shouldReceive('error')
+        ->once()
+        ->withArgs(function ($message, $context) {
+            return str_contains($message, 'Failed to archive') &&
+                   str_contains($context['error'], 'Export failed');
+        });
+
+    TestPrunableModel::create([
+        'name' => 'Old Record',
+        'created_at' => now()->subMonths(2),
+    ]);
+
+    $listener = app(ArchiveBeforePruning::class);
+    $event = new ModelPruningStarting([TestPrunableModel::class]);
+
+    // Should not throw
+    $listener->handle($event);
+
+    $files = Storage::disk('local')->files('prunable-exports');
+    expect($files)->toBeEmpty();
+});
+
+it('cleans up temp files when cleanup_temp_files is true', function () {
+    config(['prunekeeper.cleanup_temp_files' => true]);
+
+    // Clean up any existing temp files first
+    array_map('unlink', glob(sys_get_temp_dir().'/prunekeeper_csv_*'));
+    array_map('unlink', glob(sys_get_temp_dir().'/prunekeeper_sql_*'));
+
+    TestPrunableModel::create([
+        'name' => 'Old Record',
+        'created_at' => now()->subMonths(2),
+    ]);
+
+    $listener = app(ArchiveBeforePruning::class);
+    $event = new ModelPruningStarting([TestPrunableModel::class]);
+
+    $listener->handle($event);
+
+    // Verify archive was created
+    $files = Storage::disk('local')->files('prunable-exports');
+    expect($files)->toHaveCount(1);
+
+    // Temp files should be cleaned up - check for csv/sql specific temp files
+    $csvTempFiles = glob(sys_get_temp_dir().'/prunekeeper_csv_*');
+    $sqlTempFiles = glob(sys_get_temp_dir().'/prunekeeper_sql_*');
+    expect($csvTempFiles)->toBeEmpty();
+    expect($sqlTempFiles)->toBeEmpty();
+});

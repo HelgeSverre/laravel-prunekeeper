@@ -51,5 +51,14 @@ abstract class TestCase extends Orchestra
             $table->json('metadata')->nullable();
             $table->timestamps();
         });
+
+        Schema::create('test_soft_deletable_models', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('email')->nullable();
+            $table->json('metadata')->nullable();
+            $table->timestamps();
+            $table->softDeletes();
+        });
     }
 }
