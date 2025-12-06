@@ -151,8 +151,14 @@ it('can extract and read content from archive', function () {
 
     $tarGzPath = $compressor->compress($tempFile, 'data.txt');
 
-    // Extract and verify content
-    $phar = new PharData($tarGzPath);
+    // PharData cannot read content directly from .tar.gz files - we need to decompress first
+    // This is a known limitation of PharData: it can iterate files but getContent() returns empty
+    $gzData = file_get_contents($tarGzPath);
+    $decompressed = gzdecode($gzData);
+    $extractedTarPath = $tempFile.'.extracted.tar';
+    file_put_contents($extractedTarPath, $decompressed);
+
+    $phar = new PharData($extractedTarPath);
     $extractedContent = $phar['data.txt']->getContent();
 
     expect($extractedContent)->toBe($originalContent);
@@ -160,4 +166,5 @@ it('can extract and read content from archive', function () {
     // Cleanup
     @unlink($tempFile);
     @unlink($tarGzPath);
+    @unlink($extractedTarPath);
 });
