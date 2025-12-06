@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace HelgeSverre\Prunekeeper;
 
-use Closure;
 use HelgeSverre\Prunekeeper\Exceptions\InvalidColumnException;
 use HelgeSverre\Prunekeeper\Support\ArchiveResult;
 use Illuminate\Contracts\Filesystem\Filesystem;
@@ -17,22 +16,29 @@ class Prunekeeper
 {
     public const VERSION = '1.0.0';
 
-    protected ?Closure $filenameGenerator = null;
+    /** @var (callable(Model, string): string)|null */
+    protected $filenameGenerator = null;
 
-    protected ?Closure $columnsResolver = null;
+    /** @var (callable(Model): (array<string>|null))|null */
+    protected $columnsResolver = null;
 
-    protected ?Closure $beforeArchive = null;
+    /** @var (callable(Model): void)|null */
+    protected $beforeArchive = null;
 
-    protected ?Closure $afterArchive = null;
+    /** @var (callable(Model, ArchiveResult): void)|null */
+    protected $afterArchive = null;
 
-    protected ?Closure $tempFileGenerator = null;
+    /** @var (callable(string): string)|null */
+    protected $tempFileGenerator = null;
 
-    protected ?Closure $tableNameResolver = null;
+    /** @var (callable(Model): string)|null */
+    protected $tableNameResolver = null;
 
     /**
      * Register a custom filename generator callback.
      *
-     * @param  callable(Model, string): string  $callback
+     * @param  (callable(Model, string): string)|null  $callback
+     * @return $this
      */
     public function generateFilenameUsing(?callable $callback): self
     {
@@ -45,6 +51,7 @@ class Prunekeeper
      * Register a custom columns resolver callback.
      *
      * @param  (callable(Model): (array<string>|null))|null  $callback
+     * @return $this
      */
     public function resolveColumnsUsing(?callable $callback): self
     {
@@ -56,7 +63,8 @@ class Prunekeeper
     /**
      * Register a callback to run before archiving.
      *
-     * @param  callable(Model): void  $callback
+     * @param  (callable(Model): void)|null  $callback
+     * @return $this
      */
     public function beforeArchiving(?callable $callback): self
     {
@@ -68,7 +76,8 @@ class Prunekeeper
     /**
      * Register a callback to run after archiving.
      *
-     * @param  callable(Model, ArchiveResult): void  $callback
+     * @param  (callable(Model, ArchiveResult): void)|null  $callback
+     * @return $this
      */
     public function afterArchiving(?callable $callback): self
     {
@@ -171,7 +180,8 @@ class Prunekeeper
     /**
      * Register a custom temp file generator callback.
      *
-     * @param  callable(string): string  $callback  Receives prefix, returns file path
+     * @param  (callable(string): string)|null  $callback  Receives prefix, returns file path
+     * @return $this
      */
     public function createTempFileUsing(?callable $callback): self
     {
@@ -203,7 +213,8 @@ class Prunekeeper
     /**
      * Register a custom table name resolver callback.
      *
-     * @param  callable(Model): string  $callback
+     * @param  (callable(Model): string)|null  $callback
+     * @return $this
      */
     public function resolveTableNameUsing(?callable $callback): self
     {
@@ -267,8 +278,8 @@ class Prunekeeper
     /**
      * Get the configured chunk size.
      *
-     * Returns a value between 1 and 10000 to prevent issues with
-     * invalid configuration values.
+     * Returns a value between 1 and 10000. Invalid or out-of-range
+     * configuration values are clamped to this range, defaulting to 1000.
      */
     public function getChunkSize(): int
     {

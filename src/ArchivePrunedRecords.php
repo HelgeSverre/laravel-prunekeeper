@@ -9,8 +9,8 @@ use Illuminate\Database\Eloquent\Model;
 /**
  * Marker trait to indicate that a model's records should be archived before pruning.
  *
- * Add this trait to any model that uses the Prunable trait to automatically
- * export records to cloud storage before they are deleted.
+ * Add this trait to any model that uses the Prunable or MassPrunable trait
+ * to automatically export records to storage before they are deleted.
  *
  * @mixin Model
  */
@@ -20,6 +20,7 @@ trait ArchivePrunedRecords
      * Determine if the model should be archived before pruning.
      *
      * Override this method to conditionally disable archiving.
+     * This is checked by both the event listener and the CLI command.
      */
     public function shouldArchiveBeforePruning(): bool
     {
@@ -29,8 +30,9 @@ trait ArchivePrunedRecords
     /**
      * Get the columns to include in the archive.
      *
-     * Return null to include all columns, or an array of column names
-     * to limit which columns are exported.
+     * Return null to include all columns, or an array of database column names
+     * to limit which columns are exported. Use actual database column names,
+     * not accessor names or relation names.
      *
      * @return array<string>|null
      */
@@ -44,10 +46,12 @@ trait ArchivePrunedRecords
      *
      * Return null to use the default filename generator.
      *
-     * Note: $format is the underlying export format (e.g. "csv" or "sql").
-     * If compression is enabled, Prunekeeper will still use the returned
-     * filename as-is for the ZIP file, so you may want to include ".zip"
-     * yourself if needed.
+     * @param  string  $format  The export format (e.g., "csv" or "sql")
+     * @return string|null The filename, or null to use the default
+     *
+     * Note: If compression is enabled, Prunekeeper appends ".zip" to the
+     * generated filename. When providing a custom filename, the returned
+     * value is used as-is.
      */
     public function getArchiveFilename(string $format): ?string
     {

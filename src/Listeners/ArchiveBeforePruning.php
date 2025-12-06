@@ -110,7 +110,7 @@ class ArchiveBeforePruning
      * @param  Model&Archivable  $model
      * @param  Builder<Model>  $query
      */
-    protected function performArchive($model, $query): ArchiveResult
+    protected function performArchive(Model $model, Builder $query): ArchiveResult
     {
         $columns = $this->archivedPrunables->resolveColumns($model);
         $recordCount = $query->count();

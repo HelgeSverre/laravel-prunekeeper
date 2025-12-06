@@ -205,7 +205,7 @@ class ArchiveCommand extends Command
      * @param  Model&Archivable  $model
      * @param  Builder<Model>  $query
      */
-    protected function performArchive(Model $model, $query): ArchiveResult
+    protected function performArchive(Model $model, Builder $query): ArchiveResult
     {
         $exporter = $this->getExporter();
         $columns = $this->prunekeeper->resolveColumns($model);
@@ -295,7 +295,11 @@ class ArchiveCommand extends Command
     {
         $format = $this->option('format') ?: $this->prunekeeper->getFormat();
 
-        return match ($format) {
+        if (! is_string($format)) {
+            throw new \InvalidArgumentException('Format must be a string ("csv" or "sql").');
+        }
+
+        return match (strtolower($format)) {
             'sql' => app(SqlExporter::class),
             'csv' => app(CsvExporter::class),
             default => throw new \InvalidArgumentException("Invalid export format: {$format}. Use 'csv' or 'sql'."),

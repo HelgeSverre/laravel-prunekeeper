@@ -11,6 +11,13 @@ use League\Csv\Writer;
 
 class CsvExporter implements Exporter
 {
+    /**
+     * Export query results to a CSV file.
+     *
+     * @param  Builder<\Illuminate\Database\Eloquent\Model>  $query
+     * @param  array<string>|null  $columns
+     * @return string Path to the temporary CSV file
+     */
     public function export(Builder $query, ?array $columns = null): string
     {
         if ($columns !== null) {
@@ -18,8 +25,9 @@ class CsvExporter implements Exporter
         }
 
         $tempFile = Prunekeeper::createTempFile('prunekeeper_csv_');
+        $mode = Prunekeeper::getFileOpenMode() ?: 'w';
 
-        $writer = Writer::createFromPath($tempFile, 'w+');
+        $writer = Writer::createFromPath($tempFile, $mode);
 
         $chunkSize = Prunekeeper::getChunkSize();
         $headerWritten = false;
@@ -51,13 +59,15 @@ class CsvExporter implements Exporter
      * Flatten nested arrays and objects for CSV output.
      *
      * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
+     * @return array<string, scalar|null>
      */
     protected function flattenForCsv(array $data): array
     {
         return array_map(function ($value) {
             if (is_array($value) || is_object($value)) {
-                return json_encode($value);
+                $json = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+                return $json === false ? null : $json;
             }
 
             if (is_bool($value)) {
