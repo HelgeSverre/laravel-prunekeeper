@@ -33,7 +33,7 @@ class Flight extends Model
 When you run `php artisan model:prune`, Prunekeeper automatically:
 
 1. Exports matching records to CSV (or SQL)
-2. Compresses the export to ZIP
+2. Compresses the export (ZIP, gzip, bzip2, or tar.gz)
 3. Uploads to your configured storage disk
 4. Allows Laravel to proceed with deletion
 
@@ -142,6 +142,23 @@ SQL exports automatically use the correct identifier quoting for your database:
 - **PostgreSQL/SQLite:** double quotes (`"`)
 - **SQL Server:** square brackets (`[]`)
 
+### Compression Drivers
+
+Choose from multiple compression formats:
+
+| Driver | Extension | Requirements |
+|--------|-----------|--------------|
+| `zip` (default) | `.zip` | ext-zip |
+| `gzip` | `.gz` | ext-zlib |
+| `bzip2` | `.bz2` | ext-bz2 |
+| `targz` | `.tar.gz` | ext-phar, ext-zlib, phar.readonly=0 |
+
+Configure in `config/prunekeeper.php` or via environment:
+
+```bash
+PRUNEKEEPER_COMPRESSION_DRIVER=gzip
+```
+
 ## Artisan Commands
 
 ### Archive without deleting
@@ -163,6 +180,9 @@ php artisan prunekeeper:archive --format=sql
 
 # Skip compression
 php artisan prunekeeper:archive --no-compress
+
+# Use specific compression driver
+php artisan prunekeeper:archive --compression=gzip
 ```
 
 ### Validate configuration
