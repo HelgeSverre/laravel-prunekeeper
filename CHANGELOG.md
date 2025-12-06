@@ -4,7 +4,7 @@ All notable changes to `laravel-prunekeeper` will be documented in this file.
 
 ## [Unreleased]
 
-## [1.0.0] - 2025-01-XX
+## [1.0.0] - 2025-06-06
 
 ### Added
 
@@ -31,4 +31,6 @@ All notable changes to `laravel-prunekeeper` will be documented in this file.
 - Proper resource cleanup with try-finally blocks
 - Chunk size bounds validation (1-10000)
 - Detailed error messages with context
-- Invalid format validation in archive command
+- Case-insensitive format option (`--format=CSV` and `--format=csv` both work)
+- Configurable file open mode for exporters
+- Safer JSON encoding with unicode support
