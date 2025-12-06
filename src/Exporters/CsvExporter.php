@@ -28,27 +28,32 @@ class CsvExporter implements Exporter
         $tempFile = Prunekeeper::createTempFile('prunekeeper_csv_');
         $mode = Prunekeeper::getFileOpenMode() ?: 'w';
 
-        $writer = Writer::createFromPath($tempFile, $mode);
+        try {
+            $writer = Writer::createFromPath($tempFile, $mode);
 
-        $chunkSize = Prunekeeper::getChunkSize();
-        $headerWritten = false;
+            $chunkSize = Prunekeeper::getChunkSize();
+            $headerWritten = false;
 
-        $query->chunk($chunkSize, function ($records) use ($writer, $columns, &$headerWritten) {
-            foreach ($records as $record) {
-                $data = $columns !== null
-                    ? collect($record->toArray())->only($columns)->all()
-                    : $record->toArray();
+            $query->chunk($chunkSize, function ($records) use ($writer, $columns, &$headerWritten) {
+                foreach ($records as $record) {
+                    $data = $columns !== null
+                        ? collect($record->toArray())->only($columns)->all()
+                        : $record->toArray();
 
-                if (! $headerWritten) {
-                    $writer->insertOne(array_keys($data));
-                    $headerWritten = true;
+                    if (! $headerWritten) {
+                        $writer->insertOne(array_keys($data));
+                        $headerWritten = true;
+                    }
+
+                    $writer->insertOne(array_values($this->flattenForCsv($data)));
                 }
+            });
 
-                $writer->insertOne(array_values($this->flattenForCsv($data)));
-            }
-        });
-
-        return $tempFile;
+            return $tempFile;
+        } catch (\Throwable $e) {
+            @unlink($tempFile);
+            throw $e;
+        }
     }
 
     public function extension(): string

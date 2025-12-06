@@ -20,50 +20,58 @@ class SqlExporter implements Exporter
         }
 
         $tempFile = Prunekeeper::createTempFile('prunekeeper_sql_');
+        $handle = null;
 
-        $handle = fopen($tempFile, Prunekeeper::getFileOpenMode());
+        try {
+            $handle = fopen($tempFile, Prunekeeper::getFileOpenMode());
 
-        if ($handle === false) {
-            throw new RuntimeException('Failed to open temporary file for writing');
-        }
-
-        $model = $query->getModel();
-        $table = Prunekeeper::resolveTableName($model);
-        $chunkSize = Prunekeeper::getChunkSize();
-
-        fwrite($handle, sprintf("-- Created with Laravel Prunekeeper (version %s)\n", Prunekeeper::VERSION));
-        fwrite($handle, sprintf("-- Table: %s\n", $table));
-        fwrite($handle, sprintf("-- Generated: %s\n", now()->toIso8601String()));
-        fwrite($handle, "-- Format: SQL INSERT statements\n\n");
-
-        $connectionName = $model->getConnectionName();
-        $grammar = $model->getConnection()->getQueryGrammar();
-
-        $escapedTable = $grammar->wrapTable($table);
-
-        $query->chunk($chunkSize, function ($records) use ($handle, $escapedTable, $columns, $connectionName, $grammar) {
-            foreach ($records as $record) {
-                $data = $columns !== null
-                    ? collect($record->toArray())->only($columns)->all()
-                    : $record->toArray();
-
-                $escapedColumnNames = $grammar->columnize(array_keys($data));
-
-                $columnNames = array_keys($data);
-                $columnValues = array_values($data);
-                $values = implode(', ', array_map(
-                    fn ($v, $i) => $this->escapeValue($v, $connectionName, $columnNames[$i]),
-                    $columnValues,
-                    array_keys($columnValues)
-                ));
-
-                fwrite($handle, "INSERT INTO {$escapedTable} ({$escapedColumnNames}) VALUES ({$values});\n");
+            if ($handle === false) {
+                throw new RuntimeException('Failed to open temporary file for writing');
             }
-        });
 
-        fclose($handle);
+            $model = $query->getModel();
+            $table = Prunekeeper::resolveTableName($model);
+            $chunkSize = Prunekeeper::getChunkSize();
 
-        return $tempFile;
+            fwrite($handle, sprintf("-- Created with Laravel Prunekeeper (version %s)\n", Prunekeeper::VERSION));
+            fwrite($handle, sprintf("-- Table: %s\n", $table));
+            fwrite($handle, sprintf("-- Generated: %s\n", now()->toIso8601String()));
+            fwrite($handle, "-- Format: SQL INSERT statements\n\n");
+
+            $connectionName = $model->getConnectionName();
+            $grammar = $model->getConnection()->getQueryGrammar();
+
+            $escapedTable = $grammar->wrapTable($table);
+
+            $query->chunk($chunkSize, function ($records) use ($handle, $escapedTable, $columns, $connectionName, $grammar) {
+                foreach ($records as $record) {
+                    $data = $columns !== null
+                        ? collect($record->toArray())->only($columns)->all()
+                        : $record->toArray();
+
+                    $escapedColumnNames = $grammar->columnize(array_keys($data));
+
+                    $columnNames = array_keys($data);
+                    $columnValues = array_values($data);
+                    $values = implode(', ', array_map(
+                        fn ($v, $i) => $this->escapeValue($v, $connectionName, $columnNames[$i]),
+                        $columnValues,
+                        array_keys($columnValues)
+                    ));
+
+                    fwrite($handle, "INSERT INTO {$escapedTable} ({$escapedColumnNames}) VALUES ({$values});\n");
+                }
+            });
+
+            return $tempFile;
+        } catch (\Throwable $e) {
+            @unlink($tempFile);
+            throw $e;
+        } finally {
+            if (is_resource($handle)) {
+                fclose($handle);
+            }
+        }
     }
 
     public function extension(): string
