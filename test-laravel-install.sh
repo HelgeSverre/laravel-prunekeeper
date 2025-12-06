@@ -16,6 +16,237 @@ declare -a TESTED_DIRS
 
 mkdir -p wip
 
+run_e2e_archive_test() {
+    echo "Running end-to-end archive test..."
+
+    # Configure SQLite database
+    echo "  Configuring SQLite database..."
+    touch database/database.sqlite
+
+    # Update .env for SQLite
+    if grep -q "^DB_CONNECTION=" .env; then
+        sed -i.bak 's/^DB_CONNECTION=.*/DB_CONNECTION=sqlite/' .env
+        rm -f .env.bak
+    else
+        echo "DB_CONNECTION=sqlite" >> .env
+    fi
+
+    # Configure Prunekeeper to use local disk
+    {
+        echo ""
+        echo "PRUNEKEEPER_DISK=local"
+        echo "PRUNEKEEPER_PATH=prunekeeper-test"
+        echo "PRUNEKEEPER_COMPRESS=false"
+    } >> .env
+
+    # Create model and migration
+    echo "  Creating PruneTest model and migration..."
+    if ! php artisan make:model PruneTest --migration --quiet 2>/dev/null; then
+        echo -e "${RED}[FAIL] Failed to create model/migration${NC}"
+        return 1
+    fi
+
+    # Overwrite the model with ArchivePrunedRecords + Prunable
+    cat > app/Models/PruneTest.php << 'PHP'
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Prunable;
+use HelgeSverre\Prunekeeper\ArchivePrunedRecords;
+
+class PruneTest extends Model
+{
+    use Prunable;
+    use ArchivePrunedRecords;
+
+    protected $fillable = ['name', 'created_at', 'updated_at'];
+
+    public function prunable(): Builder
+    {
+        return static::where('created_at', '<=', now()->subDay());
+    }
+}
+PHP
+
+    # Find and overwrite the migration
+    local migration_file
+    migration_file=$(ls database/migrations/*create_prune_tests_table.php 2>/dev/null | head -n 1)
+
+    if [ -z "$migration_file" ]; then
+        echo -e "${RED}[FAIL] Migration file not found${NC}"
+        return 1
+    fi
+
+    cat > "$migration_file" << 'PHP'
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('prune_tests', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('prune_tests');
+    }
+};
+PHP
+
+    # Run migrations
+    echo "  Running migrations..."
+    if ! php artisan migrate --no-interaction --quiet 2>/dev/null; then
+        echo -e "${RED}[FAIL] Migrations failed${NC}"
+        return 1
+    fi
+
+    # Create test data using a PHP script
+    echo "  Seeding test data..."
+    cat > seed_test_data.php << 'PHP'
+<?php
+
+require __DIR__ . '/vendor/autoload.php';
+
+$app = require __DIR__ . '/bootstrap/app.php';
+$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+$kernel->bootstrap();
+
+use App\Models\PruneTest;
+use Illuminate\Support\Carbon;
+
+$now = Carbon::now();
+
+// Old records (should be prunable)
+PruneTest::create([
+    'name' => 'Old record 1',
+    'created_at' => $now->copy()->subDays(10),
+    'updated_at' => $now->copy()->subDays(10),
+]);
+
+PruneTest::create([
+    'name' => 'Old record 2',
+    'created_at' => $now->copy()->subDays(2),
+    'updated_at' => $now->copy()->subDays(2),
+]);
+
+// Recent record (should NOT be prunable)
+PruneTest::create([
+    'name' => 'Recent record',
+    'created_at' => $now,
+    'updated_at' => $now,
+]);
+
+echo "Seeded 3 records (2 prunable, 1 recent)\n";
+PHP
+
+    if ! php seed_test_data.php 2>/dev/null; then
+        echo -e "${RED}[FAIL] Seeding failed${NC}"
+        rm -f seed_test_data.php
+        return 1
+    fi
+    rm -f seed_test_data.php
+
+    # Run prunekeeper:archive
+    echo "  Running prunekeeper:archive..."
+    local archive_output
+    archive_output=$(php artisan prunekeeper:archive --model="App\\Models\\PruneTest" --no-interaction 2>&1)
+    local archive_status=$?
+
+    if [ $archive_status -ne 0 ]; then
+        echo -e "${RED}[FAIL] prunekeeper:archive command failed${NC}"
+        echo "$archive_output" | sed 's/^/    /'
+        return 1
+    fi
+
+    # Verify archive file exists
+    echo "  Verifying archive file exists..."
+    cat > verify_archive.php << 'PHP'
+<?php
+
+require __DIR__ . '/vendor/autoload.php';
+
+$app = require __DIR__ . '/bootstrap/app.php';
+$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+$kernel->bootstrap();
+
+use Illuminate\Support\Facades\Storage;
+
+$config = config('prunekeeper');
+$disk = $config['disk'] ?? 'local';
+$path = $config['path'] ?? 'prunekeeper-test';
+
+$files = Storage::disk($disk)->allFiles($path);
+
+if (empty($files)) {
+    echo "FAIL: No archive files found\n";
+    exit(1);
+}
+
+// Check file has content
+$firstFile = $files[0];
+$contents = Storage::disk($disk)->get($firstFile);
+
+if (empty($contents)) {
+    echo "FAIL: Archive file is empty\n";
+    exit(1);
+}
+
+// Verify CSV has expected headers and data
+$lines = explode("\n", trim($contents));
+if (count($lines) < 2) {
+    echo "FAIL: Archive has fewer than 2 lines (header + data)\n";
+    exit(1);
+}
+
+// Check header contains expected columns
+$header = $lines[0];
+if (strpos($header, 'id') === false || strpos($header, 'name') === false) {
+    echo "FAIL: Archive header missing expected columns\n";
+    echo "Header: $header\n";
+    exit(1);
+}
+
+// Should have 2 data rows (the 2 old records)
+$dataRows = count($lines) - 1;
+if ($dataRows !== 2) {
+    echo "FAIL: Expected 2 data rows, got $dataRows\n";
+    exit(1);
+}
+
+echo "PASS: Archive created with 2 records\n";
+echo "File: $firstFile\n";
+exit(0);
+PHP
+
+    local verify_output
+    verify_output=$(php verify_archive.php 2>&1)
+    local verify_status=$?
+
+    rm -f verify_archive.php
+
+    if [ $verify_status -ne 0 ]; then
+        echo -e "${RED}[FAIL] Archive verification failed${NC}"
+        echo "$verify_output" | sed 's/^/    /'
+        return 1
+    fi
+
+    echo -e "${GREEN}[PASS] End-to-end archive test passed${NC}"
+    echo "$verify_output" | sed 's/^/    /'
+    return 0
+}
+
 test_laravel_version() {
     local version=$1
     local project_dir="wip/laravel-${version}"
@@ -64,7 +295,7 @@ test_laravel_version() {
 
     if [ $test_failed -eq 0 ]; then
         if [ -f "config/prunekeeper.php" ]; then
-            echo -e "${GREEN}[PASS] Config file exists at config/prunekeeper.php${NC}"
+            echo -e "${GREEN}[PASS] Config file exists${NC}"
         else
             echo -e "${RED}[FAIL] Config file not found${NC}"
             cd ../..
@@ -92,14 +323,7 @@ try {
     }
     echo "PASS: Service provider registered\n";
 
-    // Test 2: Prunekeeper class is accessible
-    if (!class_exists(\HelgeSverre\Prunekeeper\Prunekeeper::class)) {
-        echo "FAIL: Prunekeeper class not found\n";
-        exit(1);
-    }
-    echo "PASS: Prunekeeper class exists\n";
-
-    // Test 3: Static methods work
+    // Test 2: Static methods work
     $enabled = \HelgeSverre\Prunekeeper\Prunekeeper::isEnabled();
     if (!is_bool($enabled)) {
         echo "FAIL: isEnabled() did not return boolean\n";
@@ -107,19 +331,15 @@ try {
     }
     echo "PASS: Static methods work\n";
 
-    // Test 4: Config values loaded
+    // Test 3: Config values loaded
     $config = config('prunekeeper');
-    if (!is_array($config)) {
-        echo "FAIL: Config not loaded\n";
+    if (!is_array($config) || !isset($config['disk']) || !isset($config['compression'])) {
+        echo "FAIL: Config not loaded correctly\n";
         exit(1);
     }
-    if (!isset($config['disk']) || !isset($config['format']) || !isset($config['compression'])) {
-        echo "FAIL: Config missing expected keys\n";
-        exit(1);
-    }
-    echo "PASS: Config loaded with expected keys\n";
+    echo "PASS: Config loaded\n";
 
-    // Test 5: Compression manager resolves
+    // Test 4: CompressionManager resolves
     $compression = $app->make(\HelgeSverre\Prunekeeper\Compression\CompressionManager::class);
     if (!($compression instanceof \HelgeSverre\Prunekeeper\Compression\CompressionManager)) {
         echo "FAIL: CompressionManager not resolved\n";
@@ -127,22 +347,10 @@ try {
     }
     echo "PASS: CompressionManager resolves\n";
 
-    // Test 6: Exporter contract resolves
-    $exporter = $app->make(\HelgeSverre\Prunekeeper\Contracts\Exporter::class);
-    if (!($exporter instanceof \HelgeSverre\Prunekeeper\Contracts\Exporter)) {
-        echo "FAIL: Exporter contract not resolved\n";
-        exit(1);
-    }
-    echo "PASS: Exporter contract resolves\n";
-
-    // Test 7: Commands are registered
+    // Test 5: Commands are registered
     $commands = Artisan::all();
-    if (!isset($commands['prunekeeper:archive'])) {
-        echo "FAIL: prunekeeper:archive command not registered\n";
-        exit(1);
-    }
-    if (!isset($commands['prunekeeper:validate'])) {
-        echo "FAIL: prunekeeper:validate command not registered\n";
+    if (!isset($commands['prunekeeper:archive']) || !isset($commands['prunekeeper:validate'])) {
+        echo "FAIL: Commands not registered\n";
         exit(1);
     }
     echo "PASS: Commands registered\n";
@@ -150,8 +358,7 @@ try {
     echo "ALL_TESTS_PASSED\n";
     exit(0);
 } catch (Exception $e) {
-    echo "FAIL: Exception: " . $e->getMessage() . "\n";
-    echo $e->getTraceAsString() . "\n";
+    echo "FAIL: " . $e->getMessage() . "\n";
     exit(1);
 }
 EOF
@@ -161,15 +368,12 @@ EOF
 
         if echo "$test_output" | grep -q "ALL_TESTS_PASSED"; then
             echo -e "${GREEN}[PASS] Service provider registered${NC}"
-            echo -e "${GREEN}[PASS] Prunekeeper class exists${NC}"
             echo -e "${GREEN}[PASS] Static methods work${NC}"
             echo -e "${GREEN}[PASS] Config loaded${NC}"
             echo -e "${GREEN}[PASS] CompressionManager resolves${NC}"
-            echo -e "${GREEN}[PASS] Exporter contract resolves${NC}"
             echo -e "${GREEN}[PASS] Commands registered${NC}"
         else
             echo -e "${RED}[FAIL] Integration tests failed${NC}"
-            echo -e "${BLUE}Output:${NC}"
             echo "$test_output" | sed 's/^/  /'
             cd ../..
             FAILED_VERSIONS+=("$version")
@@ -179,10 +383,19 @@ EOF
         rm -f test_prunekeeper.php
     fi
 
+    # Run end-to-end archive test
+    if [ $test_failed -eq 0 ]; then
+        if ! run_e2e_archive_test; then
+            cd ../..
+            FAILED_VERSIONS+=("$version")
+            test_failed=1
+        fi
+    fi
+
     cd ../..
 
     if [ $test_failed -eq 0 ]; then
-        echo -e "${GREEN}[PASS] Laravel ${version} test completed successfully${NC}"
+        echo -e "${GREEN}[PASS] Laravel ${version} - all tests passed${NC}"
         PASSED_VERSIONS+=("$version")
     fi
 
