@@ -1,11 +1,12 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(composer analyse:*)",
+      "Bash(cat:*)"
+    ]
+  },
   "enabledMcpjsonServers": [
     "laravel-boost",
     "herd"
-  ],
-  "permissions": {
-    "allow": [
-      "Bash(composer analyse:*)"
-    ]
-  }
+  ]
 }
