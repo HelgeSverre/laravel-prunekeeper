@@ -28,9 +28,7 @@ class PrunekeeperServiceProvider extends PackageServiceProvider
 
     public function packageRegistered(): void
     {
-        $this->app->singleton(Prunekeeper::class);
-
-        $this->app->bind(Exporter::class, fn ($app) => $app->make(Prunekeeper::class)->makeExporter());
+        $this->app->bind(Exporter::class, fn () => Prunekeeper::makeExporter());
 
         $this->app->singleton(CompressionManager::class, function ($app) {
             return new CompressionManager($app);
