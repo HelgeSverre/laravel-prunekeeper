@@ -2,8 +2,11 @@
 
 declare(strict_types=1);
 
+use HelgeSverre\Prunekeeper\ArchivePrunedRecords;
 use HelgeSverre\Prunekeeper\Tests\Fixtures\TestPrunableModel;
 use HelgeSverre\Prunekeeper\Tests\Fixtures\TestSoftDeletableModel;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Prunable;
 use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
@@ -79,7 +82,7 @@ it('uses sql format when specified', function () {
 });
 
 it('disables compression with no-compress flag', function () {
-    config(['prunekeeper.compress' => true]);
+    config(['prunekeeper.compression.enabled' => true]);
 
     TestPrunableModel::create([
         'name' => 'Old Record',
@@ -98,7 +101,7 @@ it('disables compression with no-compress flag', function () {
 });
 
 it('compresses files when compression is enabled and no-compress is not set', function () {
-    config(['prunekeeper.compress' => true]);
+    config(['prunekeeper.compression.enabled' => true]);
 
     TestPrunableModel::create([
         'name' => 'Old Record',
@@ -125,9 +128,9 @@ it('shows no records message when no prunable records exist', function () {
 });
 
 it('shows warning for model without prunable method', function () {
-    $modelClass = new class extends \Illuminate\Database\Eloquent\Model
+    $modelClass = new class extends Model
     {
-        use \HelgeSverre\Prunekeeper\ArchivePrunedRecords;
+        use ArchivePrunedRecords;
 
         protected $table = 'test_prunable_models';
     };
@@ -138,10 +141,10 @@ it('shows warning for model without prunable method', function () {
 });
 
 it('shows warning for model with archiving disabled', function () {
-    $modelClass = new class extends \Illuminate\Database\Eloquent\Model
+    $modelClass = new class extends Model
     {
-        use \HelgeSverre\Prunekeeper\ArchivePrunedRecords;
-        use \Illuminate\Database\Eloquent\Prunable;
+        use ArchivePrunedRecords;
+        use Prunable;
 
         protected $table = 'test_prunable_models';
 
@@ -254,4 +257,4 @@ it('throws error for invalid format option', function () {
         '--model' => [TestPrunableModel::class],
         '--format' => 'invalid',
     ]);
-})->throws(\InvalidArgumentException::class, "Invalid export format: invalid. Use 'csv' or 'sql'.");
+})->throws(InvalidArgumentException::class, "Invalid export format: invalid. Use 'csv' or 'sql'.");

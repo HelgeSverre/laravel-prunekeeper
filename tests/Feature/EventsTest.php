@@ -2,12 +2,17 @@
 
 declare(strict_types=1);
 
+use HelgeSverre\Prunekeeper\ArchivePrunedRecords;
+use HelgeSverre\Prunekeeper\Contracts\Exporter;
 use HelgeSverre\Prunekeeper\Events\ArchiveCompleted;
 use HelgeSverre\Prunekeeper\Events\ArchiveFailed;
 use HelgeSverre\Prunekeeper\Events\ArchiveSkipped;
 use HelgeSverre\Prunekeeper\Events\ArchiveStarting;
 use HelgeSverre\Prunekeeper\Listeners\ArchiveBeforePruning;
+use HelgeSverre\Prunekeeper\Prunekeeper;
 use HelgeSverre\Prunekeeper\Tests\Fixtures\TestPrunableModel;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Prunable;
 use Illuminate\Database\Events\ModelPruningStarting;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
@@ -59,10 +64,10 @@ describe('Listener Events', function () {
         Event::fake([ArchiveFailed::class]);
         config(['prunekeeper.fail_silently' => true]);
 
-        $mockExporter = Mockery::mock(\HelgeSverre\Prunekeeper\Contracts\Exporter::class);
-        $mockExporter->shouldReceive('export')->andThrow(new \RuntimeException('Export failed'));
+        $mockExporter = Mockery::mock(Exporter::class);
+        $mockExporter->shouldReceive('export')->andThrow(new RuntimeException('Export failed'));
         $mockExporter->shouldReceive('extension')->andReturn('csv');
-        app()->instance(\HelgeSverre\Prunekeeper\Contracts\Exporter::class, $mockExporter);
+        app()->instance(Exporter::class, $mockExporter);
 
         TestPrunableModel::create([
             'name' => 'Old Record',
@@ -102,10 +107,10 @@ describe('Listener Events', function () {
     it('dispatches ArchiveSkipped event when archiving is disabled', function () {
         Event::fake([ArchiveSkipped::class]);
 
-        $modelClass = new class extends \Illuminate\Database\Eloquent\Model
+        $modelClass = new class extends Model
         {
-            use \HelgeSverre\Prunekeeper\ArchivePrunedRecords;
-            use \Illuminate\Database\Eloquent\Prunable;
+            use ArchivePrunedRecords;
+            use Prunable;
 
             protected $table = 'test_prunable_models';
 
@@ -139,9 +144,9 @@ describe('Listener Events', function () {
     it('dispatches ArchiveSkipped event when model has no prunable method', function () {
         Event::fake([ArchiveSkipped::class]);
 
-        $modelClass = new class extends \Illuminate\Database\Eloquent\Model
+        $modelClass = new class extends Model
         {
-            use \HelgeSverre\Prunekeeper\ArchivePrunedRecords;
+            use ArchivePrunedRecords;
 
             protected $table = 'test_prunable_models';
         };
@@ -234,7 +239,7 @@ describe('Backward Compatibility', function () {
         $beforeCalled = false;
         $afterCalled = false;
 
-        $manager = app(\HelgeSverre\Prunekeeper\Prunekeeper::class);
+        $manager = app(Prunekeeper::class);
         $manager->beforeArchiving(function ($model) use (&$beforeCalled) {
             $beforeCalled = true;
         });
@@ -260,7 +265,7 @@ describe('Backward Compatibility', function () {
 
         $callbackFired = false;
 
-        $manager = app(\HelgeSverre\Prunekeeper\Prunekeeper::class);
+        $manager = app(Prunekeeper::class);
         $manager->beforeArchiving(function ($model) use (&$callbackFired) {
             $callbackFired = true;
         });

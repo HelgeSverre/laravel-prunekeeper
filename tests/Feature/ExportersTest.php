@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use HelgeSverre\Prunekeeper\Exceptions\InvalidColumnException;
 use HelgeSverre\Prunekeeper\Exporters\CsvExporter;
 use HelgeSverre\Prunekeeper\Exporters\SqlExporter;
 use HelgeSverre\Prunekeeper\Tests\Fixtures\TestPrunableModel;
@@ -84,7 +85,7 @@ describe('InvalidColumnException', function () {
         $query = TestPrunableModel::query();
 
         $exporter->export($query, ['name', 'non_existent_column']);
-    })->throws(\HelgeSverre\Prunekeeper\Exceptions\InvalidColumnException::class);
+    })->throws(InvalidColumnException::class);
 
     it('provides helpful error message with available columns', function () {
         $exporter = new CsvExporter;
@@ -92,7 +93,7 @@ describe('InvalidColumnException', function () {
 
         try {
             $exporter->export($query, ['name', 'invalid_col']);
-        } catch (\HelgeSverre\Prunekeeper\Exceptions\InvalidColumnException $e) {
+        } catch (InvalidColumnException $e) {
             expect($e->getMessage())
                 ->toContain('invalid_col')
                 ->toContain('name')
@@ -114,8 +115,9 @@ describe('SqlExporter', function () {
         $tempFile = $exporter->export($query);
         $content = file_get_contents($tempFile);
 
+        // Table name should be wrapped (quotes vary by database: backticks for MySQL, double quotes for PostgreSQL/SQLite)
         expect($content)
-            ->toContain('INSERT INTO `test_prunable_models`')
+            ->toMatch('/INSERT INTO ["`]test_prunable_models["`]/')
             ->toContain('Test User 1')
             ->toContain('Test User 2');
 
@@ -129,9 +131,10 @@ describe('SqlExporter', function () {
         $tempFile = $exporter->export($query, ['name', 'email']);
         $content = file_get_contents($tempFile);
 
+        // Column names should be wrapped (quotes vary by database)
         expect($content)
-            ->toContain('`name`, `email`')
-            ->not->toContain('`metadata`');
+            ->toMatch('/["`]name["`], ["`]email["`]/')
+            ->not->toMatch('/["`]metadata["`]/');
 
         @unlink($tempFile);
     });

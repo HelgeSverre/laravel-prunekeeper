@@ -52,9 +52,15 @@
   },
   "scripts": {
     "analyse": "vendor/bin/phpstan analyse src --level=6",
-    "analyze": "@analyse",
     "format": "vendor/bin/pint",
-    "test": "vendor/bin/pest"
+    "test": "vendor/bin/pest",
+    "test-parallel": "vendor/bin/pest --parallel",
+    "coverage": "vendor/bin/pest --coverage",
+    "check": [
+      "@format",
+      "@analyse",
+      "@test"
+    ]
   },
   "config": {
     "sort-packages": true,

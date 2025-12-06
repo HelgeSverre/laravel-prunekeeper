@@ -2,7 +2,11 @@
 
 declare(strict_types=1);
 
+use HelgeSverre\Prunekeeper\ArchivePrunedRecords;
+use HelgeSverre\Prunekeeper\Tests\Fixtures\TestMassPrunableModel;
 use HelgeSverre\Prunekeeper\Tests\Fixtures\TestPrunableModel;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Prunable;
 
 beforeEach(function () {
     // Clean up any existing model files in the test app/Models directory
@@ -20,10 +24,10 @@ it('validates models with default columns successfully', function () {
 
 it('validates models with valid custom columns', function () {
     // Create a model class with valid custom columns
-    $modelClass = new class extends \Illuminate\Database\Eloquent\Model
+    $modelClass = new class extends Model
     {
-        use \HelgeSverre\Prunekeeper\ArchivePrunedRecords;
-        use \Illuminate\Database\Eloquent\Prunable;
+        use ArchivePrunedRecords;
+        use Prunable;
 
         protected $table = 'test_prunable_models';
 
@@ -47,10 +51,10 @@ it('validates models with valid custom columns', function () {
 
 it('fails validation for models with invalid columns', function () {
     // Create a model class with invalid custom columns
-    $modelClass = new class extends \Illuminate\Database\Eloquent\Model
+    $modelClass = new class extends Model
     {
-        use \HelgeSverre\Prunekeeper\ArchivePrunedRecords;
-        use \Illuminate\Database\Eloquent\Prunable;
+        use ArchivePrunedRecords;
+        use Prunable;
 
         protected $table = 'test_prunable_models';
 
@@ -81,9 +85,9 @@ it('shows warning for non-existent model class', function () {
 
 it('shows warning for model without ArchivePrunedRecords trait', function () {
     // Create a model without the trait
-    $modelClass = new class extends \Illuminate\Database\Eloquent\Model
+    $modelClass = new class extends Model
     {
-        use \Illuminate\Database\Eloquent\Prunable;
+        use Prunable;
 
         protected $table = 'test_prunable_models';
 
@@ -120,7 +124,7 @@ it('validates multiple models at once', function () {
     $this->artisan('prunekeeper:validate', [
         '--model' => [
             TestPrunableModel::class,
-            \HelgeSverre\Prunekeeper\Tests\Fixtures\TestMassPrunableModel::class,
+            TestMassPrunableModel::class,
         ],
     ])
         ->expectsOutputToContain('All models validated successfully')

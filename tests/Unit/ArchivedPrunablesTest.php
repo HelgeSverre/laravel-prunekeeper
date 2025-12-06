@@ -2,14 +2,16 @@
 
 declare(strict_types=1);
 
+use HelgeSverre\Prunekeeper\Exceptions\InvalidColumnException;
 use HelgeSverre\Prunekeeper\Prunekeeper;
+use HelgeSverre\Prunekeeper\Support\ArchiveResult;
 use HelgeSverre\Prunekeeper\Tests\Fixtures\TestPrunableModel;
 
 it('generates default filename with timestamp and table name', function () {
     $manager = new Prunekeeper;
     $model = new TestPrunableModel;
 
-    config(['prunekeeper.compress' => false]);
+    config(['prunekeeper.compression.enabled' => false]);
 
     $filename = $manager->generateFilename($model, 'csv');
 
@@ -32,11 +34,12 @@ it('uses custom filename generator when set', function () {
     expect($filename)->toBe('custom/test_prunable_models.csv');
 });
 
-it('adds zip extension when compression is enabled', function () {
+it('adds compression extension when compression is enabled', function () {
     $manager = new Prunekeeper;
     $model = new TestPrunableModel;
 
-    config(['prunekeeper.compress' => true]);
+    config(['prunekeeper.compression.enabled' => true]);
+    config(['prunekeeper.compression.driver' => 'zip']);
 
     $filename = $manager->generateFilename($model, 'csv');
 
@@ -193,10 +196,10 @@ it('creates temp file in system temp directory by default', function () {
 it('respects shouldCompress config', function () {
     $manager = new Prunekeeper;
 
-    config(['prunekeeper.compress' => true]);
+    config(['prunekeeper.compression.enabled' => true]);
     expect($manager->shouldCompress())->toBeTrue();
 
-    config(['prunekeeper.compress' => false]);
+    config(['prunekeeper.compression.enabled' => false]);
     expect($manager->shouldCompress())->toBeFalse();
 });
 
@@ -235,7 +238,7 @@ it('throws InvalidColumnException for invalid columns', function () {
     $model = new TestPrunableModel;
 
     $manager->validateColumns($model, ['id', 'invalid_column']);
-})->throws(\HelgeSverre\Prunekeeper\Exceptions\InvalidColumnException::class);
+})->throws(InvalidColumnException::class);
 
 it('fires before archive callback', function () {
     $manager = new Prunekeeper;
@@ -258,7 +261,7 @@ it('fires after archive callback with result', function () {
     $callbackFired = false;
     $receivedResult = null;
 
-    $result = new \HelgeSverre\Prunekeeper\Support\ArchiveResult(
+    $result = new ArchiveResult(
         modelClass: TestPrunableModel::class,
         storagePath: 'test/path.csv',
         recordCount: 10,
