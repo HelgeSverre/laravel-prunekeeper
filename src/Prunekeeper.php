@@ -18,6 +18,7 @@ use HelgeSverre\Prunekeeper\Support\ArchiveResult;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use InvalidArgumentException;
@@ -29,73 +30,81 @@ class Prunekeeper
     public const VERSION = '1.0.0';
 
     /** @var (callable(Model, string): string)|null */
-    protected $filenameGenerator = null;
+    protected static $filenameGenerator = null;
 
     /** @var (callable(Model): (array<string>|null))|null */
-    protected $columnsResolver = null;
+    protected static $columnsResolver = null;
 
     /** @var (callable(Model): void)|null */
-    protected $beforeArchive = null;
+    protected static $beforeArchive = null;
 
     /** @var (callable(Model, ArchiveResult): void)|null */
-    protected $afterArchive = null;
+    protected static $afterArchive = null;
 
     /** @var (callable(string): string)|null */
-    protected $tempFileGenerator = null;
+    protected static $tempFileGenerator = null;
 
     /** @var (callable(Model): string)|null */
-    protected $tableNameResolver = null;
+    protected static $tableNameResolver = null;
 
     /**
      * Register a custom filename generator callback.
      *
      * @param  (callable(Model, string): string)|null  $callback
-     * @return $this
      */
-    public function generateFilenameUsing(?callable $callback): self
+    public static function generateFilenameUsing(?callable $callback): void
     {
-        $this->filenameGenerator = $callback;
-
-        return $this;
+        static::$filenameGenerator = $callback;
     }
 
     /**
      * Register a custom columns resolver callback.
      *
      * @param  (callable(Model): (array<string>|null))|null  $callback
-     * @return $this
      */
-    public function resolveColumnsUsing(?callable $callback): self
+    public static function resolveColumnsUsing(?callable $callback): void
     {
-        $this->columnsResolver = $callback;
-
-        return $this;
+        static::$columnsResolver = $callback;
     }
 
     /**
      * Register a callback to run before archiving.
      *
      * @param  (callable(Model): void)|null  $callback
-     * @return $this
      */
-    public function beforeArchiving(?callable $callback): self
+    public static function beforeArchiving(?callable $callback): void
     {
-        $this->beforeArchive = $callback;
-
-        return $this;
+        static::$beforeArchive = $callback;
     }
 
     /**
      * Register a callback to run after archiving.
      *
      * @param  (callable(Model, ArchiveResult): void)|null  $callback
-     * @return $this
      */
-    public function afterArchiving(?callable $callback): self
+    public static function afterArchiving(?callable $callback): void
     {
-        $this->afterArchive = $callback;
+        static::$afterArchive = $callback;
+    }
 
-        return $this;
+    /**
+     * Register a custom temp file generator callback.
+     *
+     * @param  (callable(string): string)|null  $callback  Receives prefix, returns file path
+     */
+    public static function createTempFileUsing(?callable $callback): void
+    {
+        static::$tempFileGenerator = $callback;
+    }
+
+    /**
+     * Register a custom table name resolver callback.
+     *
+     * @param  (callable(Model): string)|null  $callback
+     */
+    public static function resolveTableNameUsing(?callable $callback): void
+    {
+        static::$tableNameResolver = $callback;
     }
 
     /**
@@ -103,16 +112,16 @@ class Prunekeeper
      *
      * @param  bool|null  $compressed  Override compression setting (null uses config)
      */
-    public function generateFilename(Model $model, string $format, ?bool $compressed = null): string
+    public static function generateFilename(Model $model, string $format, ?bool $compressed = null): string
     {
-        if ($this->filenameGenerator) {
-            return call_user_func($this->filenameGenerator, $model, $format);
+        if (static::$filenameGenerator) {
+            return call_user_func(static::$filenameGenerator, $model, $format);
         }
 
-        $compressed ??= $this->shouldCompress();
+        $compressed ??= static::shouldCompress();
 
         $extension = $compressed
-            ? "{$format}.{$this->getCompressionExtension()}"
+            ? "{$format}.".static::getCompressionExtension()
             : $format;
 
         return sprintf(
@@ -130,9 +139,8 @@ class Prunekeeper
      *
      * @return array<string>|null
      */
-    public function resolveColumns(Model $model): ?array
+    public static function resolveColumns(Model $model): ?array
     {
-        // Check if model defines custom columns (returns non-null array)
         if (method_exists($model, 'getArchivableColumns')) {
             $columns = $model->getArchivableColumns();
 
@@ -141,9 +149,8 @@ class Prunekeeper
             }
         }
 
-        // Fall back to resolver callback if set
-        if ($this->columnsResolver) {
-            return call_user_func($this->columnsResolver, $model);
+        if (static::$columnsResolver) {
+            return call_user_func(static::$columnsResolver, $model);
         }
 
         return null;
@@ -156,7 +163,7 @@ class Prunekeeper
      *
      * @throws InvalidColumnException
      */
-    public function validateColumns(Model $model, array $columns): void
+    public static function validateColumns(Model $model, array $columns): void
     {
         $table = $model->getTable();
         $connection = $model->getConnectionName();
@@ -172,35 +179,31 @@ class Prunekeeper
     /**
      * Fire the before archive callback and dispatch event.
      */
-    public function fireBeforeArchive(Model $model, int $recordCount = 0): void
+    public static function fireBeforeArchive(Model $model, int $recordCount = 0): void
     {
-        // Fire legacy callback (backward compatible)
-        if ($this->beforeArchive) {
-            call_user_func($this->beforeArchive, $model);
+        if (static::$beforeArchive) {
+            call_user_func(static::$beforeArchive, $model);
         }
 
-        // Dispatch Laravel event
         ArchiveStarting::dispatch($model, $recordCount);
     }
 
     /**
      * Fire the after archive callback and dispatch event.
      */
-    public function fireAfterArchive(Model $model, ArchiveResult $result): void
+    public static function fireAfterArchive(Model $model, ArchiveResult $result): void
     {
-        // Fire legacy callback (backward compatible)
-        if ($this->afterArchive) {
-            call_user_func($this->afterArchive, $model, $result);
+        if (static::$afterArchive) {
+            call_user_func(static::$afterArchive, $model, $result);
         }
 
-        // Dispatch Laravel event
         ArchiveCompleted::dispatch($model, $result);
     }
 
     /**
      * Fire the archive failed event.
      */
-    public function fireArchiveFailed(Model $model, Throwable $exception): void
+    public static function fireArchiveFailed(Model $model, Throwable $exception): void
     {
         ArchiveFailed::dispatch($model, $exception);
     }
@@ -208,22 +211,9 @@ class Prunekeeper
     /**
      * Fire the archive skipped event.
      */
-    public function fireArchiveSkipped(Model $model, string $reason): void
+    public static function fireArchiveSkipped(Model $model, string $reason): void
     {
         ArchiveSkipped::dispatch($model, $reason);
-    }
-
-    /**
-     * Register a custom temp file generator callback.
-     *
-     * @param  (callable(string): string)|null  $callback  Receives prefix, returns file path
-     * @return $this
-     */
-    public function createTempFileUsing(?callable $callback): self
-    {
-        $this->tempFileGenerator = $callback;
-
-        return $this;
     }
 
     /**
@@ -231,10 +221,10 @@ class Prunekeeper
      *
      * @throws RuntimeException
      */
-    public function createTempFile(string $prefix = 'prunekeeper_export_'): string
+    public static function createTempFile(string $prefix = 'prunekeeper_export_'): string
     {
-        if ($this->tempFileGenerator) {
-            return call_user_func($this->tempFileGenerator, $prefix);
+        if (static::$tempFileGenerator) {
+            return call_user_func(static::$tempFileGenerator, $prefix);
         }
 
         $tempFile = tempnam(sys_get_temp_dir(), $prefix);
@@ -247,25 +237,12 @@ class Prunekeeper
     }
 
     /**
-     * Register a custom table name resolver callback.
-     *
-     * @param  (callable(Model): string)|null  $callback
-     * @return $this
-     */
-    public function resolveTableNameUsing(?callable $callback): self
-    {
-        $this->tableNameResolver = $callback;
-
-        return $this;
-    }
-
-    /**
      * Resolve the table name for a model.
      */
-    public function resolveTableName(Model $model): string
+    public static function resolveTableName(Model $model): string
     {
-        if ($this->tableNameResolver) {
-            return call_user_func($this->tableNameResolver, $model);
+        if (static::$tableNameResolver) {
+            return call_user_func(static::$tableNameResolver, $model);
         }
 
         return $model->getTable();
@@ -274,7 +251,7 @@ class Prunekeeper
     /**
      * Get the configured file open mode.
      */
-    public function getFileOpenMode(): string
+    public static function getFileOpenMode(): string
     {
         return config('prunekeeper.file_open_mode', 'w');
     }
@@ -282,7 +259,7 @@ class Prunekeeper
     /**
      * Get the configured storage disk.
      */
-    public function disk(): Filesystem
+    public static function disk(): Filesystem
     {
         return Storage::disk(config('prunekeeper.disk', 's3'));
     }
@@ -290,7 +267,7 @@ class Prunekeeper
     /**
      * Check if archiving is enabled.
      */
-    public function isEnabled(): bool
+    public static function isEnabled(): bool
     {
         return (bool) config('prunekeeper.enabled', true);
     }
@@ -298,7 +275,7 @@ class Prunekeeper
     /**
      * Check if failures should be silent.
      */
-    public function shouldFailSilently(): bool
+    public static function shouldFailSilently(): bool
     {
         return (bool) config('prunekeeper.fail_silently', false);
     }
@@ -306,7 +283,7 @@ class Prunekeeper
     /**
      * Get the configured export format.
      */
-    public function getFormat(): string
+    public static function getFormat(): string
     {
         return config('prunekeeper.format', 'csv');
     }
@@ -316,9 +293,9 @@ class Prunekeeper
      *
      * @throws InvalidArgumentException
      */
-    public function makeExporter(?string $format = null): Exporter
+    public static function makeExporter(?string $format = null): Exporter
     {
-        $format = strtolower($format ?? $this->getFormat());
+        $format = strtolower($format ?? static::getFormat());
 
         return match ($format) {
             'csv' => app(CsvExporter::class),
@@ -335,7 +312,7 @@ class Prunekeeper
      * Returns a value between 1 and 10000. Invalid or out-of-range
      * configuration values are clamped to this range, defaulting to 1000.
      */
-    public function getChunkSize(): int
+    public static function getChunkSize(): int
     {
         $chunkSize = (int) config('prunekeeper.chunk_size', 1000);
 
@@ -353,7 +330,7 @@ class Prunekeeper
     /**
      * Check if compression is enabled.
      */
-    public function shouldCompress(): bool
+    public static function shouldCompress(): bool
     {
         return (bool) config('prunekeeper.compression.enabled', true);
     }
@@ -361,7 +338,7 @@ class Prunekeeper
     /**
      * Get the compression manager instance.
      */
-    public function compression(): CompressionManager
+    public static function compression(): CompressionManager
     {
         return app(CompressionManager::class);
     }
@@ -369,17 +346,33 @@ class Prunekeeper
     /**
      * Get the compression extension for the current driver.
      */
-    public function getCompressionExtension(): string
+    public static function getCompressionExtension(): string
     {
-        return $this->compression()->driver()->extension();
+        return static::compression()->driver()->extension();
     }
 
     /**
      * Check if temp files should be cleaned up.
      */
-    public function shouldCleanupTempFiles(): bool
+    public static function shouldCleanupTempFiles(): bool
     {
         return (bool) config('prunekeeper.cleanup_temp_files', true);
+    }
+
+    /**
+     * Build the prunable query for a model, including soft-deleted records if applicable.
+     *
+     * @return Builder<Model>
+     */
+    public static function makePrunableQuery(Model $model): Builder
+    {
+        $query = $model->prunable();
+
+        if (in_array(SoftDeletes::class, class_uses_recursive($model::class))) {
+            $query->withTrashed();
+        }
+
+        return $query;
     }
 
     /**
@@ -389,14 +382,14 @@ class Prunekeeper
      * @param  Builder<Model>  $query
      * @param  callable(string): void|null  $onCleanupError  Callback when temp file cleanup fails
      */
-    public function archive(
+    public static function archive(
         Model $model,
         Builder $query,
         Exporter $exporter,
         bool $shouldCompress = true,
         ?callable $onCleanupError = null
     ): ArchiveResult {
-        $columns = $this->resolveColumns($model);
+        $columns = static::resolveColumns($model);
         $recordCount = $query->count();
 
         $tempFile = null;
@@ -404,11 +397,9 @@ class Prunekeeper
         $stream = null;
 
         try {
-            // Export to temporary file
             $tempFile = $exporter->export(clone $query, $columns);
             $format = $exporter->extension();
 
-            // Validate export produced content
             if (! file_exists($tempFile) || filesize($tempFile) === 0) {
                 $modelClass = $model::class;
                 throw new RuntimeException(
@@ -416,12 +407,10 @@ class Prunekeeper
                 );
             }
 
-            // Determine the storage filename
             $filename = $model->getArchiveFilename($format)
-                ?? $this->generateFilename($model, $format, $shouldCompress);
+                ?? static::generateFilename($model, $format, $shouldCompress);
 
-            // Get compression extension and append to custom filenames when compression is enabled
-            $compressionExtension = $shouldCompress ? $this->getCompressionExtension() : null;
+            $compressionExtension = $shouldCompress ? static::getCompressionExtension() : null;
 
             if ($shouldCompress && $compressionExtension && ! str_ends_with($filename, '.'.$compressionExtension)) {
                 $filename .= '.'.$compressionExtension;
@@ -430,14 +419,12 @@ class Prunekeeper
             $fileToUpload = $tempFile;
 
             if ($shouldCompress) {
-                $compressedFile = $this->compression()->driver()->compress($tempFile, 'export.'.$format);
+                $compressedFile = static::compression()->driver()->compress($tempFile, 'export.'.$format);
                 $fileToUpload = $compressedFile;
             }
 
-            // Get file size before upload
             $fileSize = filesize($fileToUpload) ?: 0;
 
-            // Upload to storage using stream for memory efficiency
             $stream = fopen($fileToUpload, 'r');
 
             if ($stream === false) {
@@ -448,7 +435,7 @@ class Prunekeeper
                 );
             }
 
-            $uploaded = $this->disk()->put($filename, $stream);
+            $uploaded = static::disk()->put($filename, $stream);
 
             if ($uploaded === false) {
                 throw new RuntimeException("Failed to upload archive to storage: {$filename}");
@@ -467,17 +454,32 @@ class Prunekeeper
                 fclose($stream);
             }
 
-            if ($this->shouldCleanupTempFiles()) {
-                $this->cleanupTempFile($tempFile, $onCleanupError);
-                $this->cleanupTempFile($compressedFile, $onCleanupError);
+            if (static::shouldCleanupTempFiles()) {
+                static::cleanupTempFile($tempFile, $onCleanupError);
+                static::cleanupTempFile($compressedFile, $onCleanupError);
             }
         }
     }
 
     /**
+     * Reset all callbacks (for testing).
+     *
+     * @internal
+     */
+    public static function flushState(): void
+    {
+        static::$filenameGenerator = null;
+        static::$columnsResolver = null;
+        static::$beforeArchive = null;
+        static::$afterArchive = null;
+        static::$tempFileGenerator = null;
+        static::$tableNameResolver = null;
+    }
+
+    /**
      * Clean up a temporary file.
      */
-    private function cleanupTempFile(?string $file, ?callable $onError): void
+    private static function cleanupTempFile(?string $file, ?callable $onError): void
     {
         if ($file === null || ! file_exists($file)) {
             return;
