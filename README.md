@@ -1,14 +1,19 @@
 # Prunekeeper
 
+![Prunekeeper](art/header.png)
+
 **Archive prunable Eloquent records before deletion.**
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/helgeesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgeesverre/laravel-prunekeeper)
 [![Total Downloads](https://img.shields.io/packagist/dt/helgeesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgeesverre/laravel-prunekeeper)
 [![License](https://img.shields.io/packagist/l/helgeesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgeesverre/laravel-prunekeeper)
 
-Laravel's `Prunable` trait lets you automatically clean up old database records. But once they're gone, they're gone forever.
+Laravel's `Prunable` trait lets you automatically clean up old database records. <br> But once they're gone, they're
+gone forever.
 
-Prunekeeper hooks into Laravel's pruning process to export records to CSV or SQL before deletion. Archives are compressed and uploaded to any Laravel filesystem disk (S3, local, etc.), giving you a safety net for compliance, auditing, or "just in case."
+Prunekeeper hooks into Laravel's pruning process to export records to CSV or SQL before deletion. Archives are
+compressed and uploaded to any Laravel filesystem disk (S3, local, etc.), giving you a safety net for compliance,
+auditing, or "just in case."
 
 ```php
 class Flight extends Model
@@ -177,7 +182,8 @@ class Flight extends Model
 }
 ```
 
-If you specify columns that don't exist, Prunekeeper throws an `InvalidColumnException` with a helpful message showing available columns.
+If you specify columns that don't exist, Prunekeeper throws an `InvalidColumnException` with a helpful message showing
+available columns.
 
 ### Exclude sensitive columns globally
 
@@ -305,7 +311,8 @@ For very large tables (millions of records):
 
 When archiving data that may contain sensitive information:
 
-1. **Use column filtering**: Implement `getArchivableColumns()` or use `resolveColumnsUsing()` to exclude sensitive fields
+1. **Use column filtering**: Implement `getArchivableColumns()` or use `resolveColumnsUsing()` to exclude sensitive
+   fields
 2. **Use secure storage**: Configure your storage disk with appropriate access controls and encryption
 3. **Run validation**: Use `prunekeeper:validate` in CI/CD to catch configuration errors
 
