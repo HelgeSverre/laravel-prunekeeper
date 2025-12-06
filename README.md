@@ -195,10 +195,10 @@ available columns.
 
 ### Exclude sensitive columns globally
 
-Apply column filtering across all models:
+Apply column filtering across all models. Configure Prunekeeper in a service provider's `boot` method:
 
 ```php
-use HelgeSverre\Prunekeeper\Facades\Prunekeeper;
+use HelgeSverre\Prunekeeper\Prunekeeper;
 
 Prunekeeper::resolveColumnsUsing(function ($model) {
     $allColumns = Schema::getColumnListing($model->getTable());
@@ -217,7 +217,7 @@ Prunekeeper::resolveColumnsUsing(function ($model) {
 Override the default filename pattern globally:
 
 ```php
-use HelgeSverre\Prunekeeper\Facades\Prunekeeper;
+use HelgeSverre\Prunekeeper\Prunekeeper;
 
 Prunekeeper::generateFilenameUsing(function ($model, $format) {
     return sprintf('archives/%s/%s-%s.%s',
@@ -248,7 +248,7 @@ class Flight extends Model
 Hook into the archiving process:
 
 ```php
-use HelgeSverre\Prunekeeper\Facades\Prunekeeper;
+use HelgeSverre\Prunekeeper\Prunekeeper;
 
 Prunekeeper::beforeArchiving(function ($model) {
     Log::info("Starting archive for {$model->getTable()}");
