@@ -1,0 +1,182 @@
+services:
+  # MySQL 8.0 (current)
+  mysql:
+    image: mysql:8.0
+    container_name: prunekeeper-mysql
+    ports:
+      - "3310:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: prunekeeper
+      MYSQL_USER: prunekeeper
+      MYSQL_PASSWORD: secret
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: "mysql --user=prunekeeper --password=secret --execute 'SELECT 1' || exit 1"
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    tmpfs:
+      - /var/lib/mysql
+    networks:
+      - prunekeeper
+
+  # MySQL 8.4 (latest LTS)
+  mysql84:
+    image: mysql:8.4
+    container_name: prunekeeper-mysql84
+    ports:
+      - "3308:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: prunekeeper
+      MYSQL_USER: prunekeeper
+      MYSQL_PASSWORD: secret
+    command: --mysql-native-password=ON
+    healthcheck:
+      test: "mysql --user=prunekeeper --password=secret --execute 'SELECT 1' || exit 1"
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    tmpfs:
+      - /var/lib/mysql
+    networks:
+      - prunekeeper
+
+  # PostgreSQL 16 (current)
+  postgres:
+    image: postgres:16
+    container_name: prunekeeper-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: prunekeeper
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: prunekeeper
+    healthcheck:
+      test: ["CMD", "pg_isready", "-q", "-d", "prunekeeper", "-U", "prunekeeper"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks:
+      - prunekeeper
+
+  # PostgreSQL 15
+  postgres15:
+    image: postgres:15
+    container_name: prunekeeper-postgres15
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_USER: prunekeeper
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: prunekeeper
+    healthcheck:
+      test: ["CMD", "pg_isready", "-q", "-d", "prunekeeper", "-U", "prunekeeper"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks:
+      - prunekeeper
+
+  # PostgreSQL 14 (LTS)
+  postgres14:
+    image: postgres:14
+    container_name: prunekeeper-postgres14
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: prunekeeper
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: prunekeeper
+    healthcheck:
+      test: ["CMD", "pg_isready", "-q", "-d", "prunekeeper", "-U", "prunekeeper"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks:
+      - prunekeeper
+
+  # MariaDB 11 (current)
+  mariadb:
+    image: mariadb:11
+    container_name: prunekeeper-mariadb
+    ports:
+      - "3307:3306"
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: prunekeeper
+      MARIADB_USER: prunekeeper
+      MARIADB_PASSWORD: secret
+    healthcheck:
+      test: "mariadb --user=prunekeeper --password=secret --execute 'SELECT 1' || exit 1"
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    tmpfs:
+      - /var/lib/mysql
+    networks:
+      - prunekeeper
+
+  # MariaDB 10.11 (LTS)
+  mariadb10:
+    image: mariadb:10.11
+    container_name: prunekeeper-mariadb10
+    ports:
+      - "3309:3306"
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: prunekeeper
+      MARIADB_USER: prunekeeper
+      MARIADB_PASSWORD: secret
+    healthcheck:
+      test: "mariadb --user=prunekeeper --password=secret --execute 'SELECT 1' || exit 1"
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    tmpfs:
+      - /var/lib/mysql
+    networks:
+      - prunekeeper
+
+  # PHP test runner with all extensions
+  php:
+    build: .
+    container_name: prunekeeper-php
+    volumes:
+      - .:/app
+    working_dir: /app
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mysql84:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      postgres15:
+        condition: service_healthy
+      postgres14:
+        condition: service_healthy
+      mariadb:
+        condition: service_healthy
+      mariadb10:
+        condition: service_healthy
+    networks:
+      - prunekeeper
+
+networks:
+  prunekeeper:
+    driver: bridge
