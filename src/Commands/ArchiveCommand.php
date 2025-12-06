@@ -25,7 +25,8 @@ class ArchiveCommand extends Command
         {--model=* : The model(s) to archive}
         {--format= : Export format (csv or sql)}
         {--pretend : Display the number of records that would be archived}
-        {--no-compress : Disable compression}';
+        {--no-compress : Disable compression}
+        {--compression= : Override compression driver (zip, gzip, targz, bzip2)}';
 
     /**
      * The console command description.
@@ -152,11 +153,18 @@ class ArchiveCommand extends Command
         });
 
         if ($result !== null) {
-            $this->components->bulletList([
+            $items = [
                 "Path: {$result->storagePath}",
                 "Records: {$result->recordCount}",
                 "Size: {$result->humanFileSize()}",
-            ]);
+            ];
+
+            if ($result->compressed) {
+                $driver = $this->getCompressionDriver();
+                $items[] = "Compression: {$driver}";
+            }
+
+            $this->components->bulletList($items);
         }
 
         return $result;
@@ -175,5 +183,19 @@ class ArchiveCommand extends Command
         $shouldCompress = ! $this->option('no-compress') && $this->prunekeeper->shouldCompress();
 
         return $this->prunekeeper->archive($model, $query, $exporter, $shouldCompress);
+    }
+
+    /**
+     * Get the compression driver to use.
+     */
+    protected function getCompressionDriver(): string
+    {
+        $driver = $this->option('compression');
+
+        if (is_string($driver) && $driver !== '') {
+            return $driver;
+        }
+
+        return $this->prunekeeper->compression()->getDefaultDriver();
     }
 }
