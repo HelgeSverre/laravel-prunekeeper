@@ -121,6 +121,9 @@ return [
 
     // Clean up temporary files after upload
     'cleanup_temp_files' => true,
+
+    // Paths for model discovery (supports glob patterns)
+    'models_path' => ['app/Models', 'app'],
 ];
 ```
 
@@ -129,9 +132,12 @@ return [
 | Format            | Description                       | Best For                                       |
 | ----------------- | --------------------------------- | ---------------------------------------------- |
 | **CSV** (default) | Portable, database-agnostic       | General archiving, analytics, data portability |
-| **SQL**           | MySQL/MariaDB `INSERT` statements | Direct database restoration (MySQL only)       |
+| **SQL**           | Database-specific `INSERT` statements | Direct database restoration                 |
 
-> **Note:** SQL export uses MySQL-specific syntax. For PostgreSQL, SQLite, or SQL Server, use CSV.
+SQL exports automatically use the correct identifier quoting for your database:
+- **MySQL/MariaDB:** backticks (`` ` ``)
+- **PostgreSQL/SQLite:** double quotes (`"`)
+- **SQL Server:** square brackets (`[]`)
 
 ## Artisan Commands
 
@@ -255,6 +261,45 @@ Prunekeeper::afterArchiving(function ($model, $result) {
 });
 ```
 
+### Events
+
+Prunekeeper dispatches Laravel events for integration with queues, notifications, or monitoring:
+
+```php
+use HelgeSverre\Prunekeeper\Events\ArchiveStarting;
+use HelgeSverre\Prunekeeper\Events\ArchiveCompleted;
+use HelgeSverre\Prunekeeper\Events\ArchiveFailed;
+use HelgeSverre\Prunekeeper\Events\ArchiveSkipped;
+
+// In EventServiceProvider or via Event::listen()
+Event::listen(ArchiveStarting::class, function ($event) {
+    // $event->model - the model instance
+    // $event->recordCount - number of records to archive
+});
+
+Event::listen(ArchiveCompleted::class, function ($event) {
+    // $event->model - the model instance
+    // $event->result - ArchiveResult with path, size, format, etc.
+});
+
+Event::listen(ArchiveFailed::class, function ($event) {
+    // $event->model - the model instance
+    // $event->exception - the exception that occurred
+});
+
+Event::listen(ArchiveSkipped::class, function ($event) {
+    // $event->model - the model instance
+    // $event->reason - ArchiveSkipped::REASON_* constant
+});
+```
+
+| Event | Dispatched When |
+|-------|-----------------|
+| `ArchiveStarting` | Before archive begins |
+| `ArchiveCompleted` | After successful archive |
+| `ArchiveFailed` | When archive fails |
+| `ArchiveSkipped` | When archive is skipped (disabled, no records, pretend mode) |
+
 ### Disable archiving conditionally
 
 Disable archiving for specific models or environments:
@@ -269,6 +314,31 @@ class Flight extends Model
         return app()->isProduction();
     }
 }
+```
+
+### Model discovery
+
+The `prunekeeper:archive` and `prunekeeper:validate` commands auto-discover models using the `ArchivePrunedRecords` trait.
+
+By default, models are discovered in `app/Models` and `app/`. Configure custom paths:
+
+```php
+// config/prunekeeper.php
+'models_path' => ['app/Models', 'app/Domain/*/Models'],
+```
+
+**Glob patterns** are supported:
+
+| Pattern | Matches |
+|---------|---------|
+| `app/Models` | Standard Laravel location |
+| `app/Domain/*/Models` | `app/Domain/Users/Models`, `app/Domain/Orders/Models`, etc. |
+| `app/Modules/**/Models` | Recursively finds all `Models` directories under `app/Modules/` |
+
+You can also specify models directly via the `--model` option:
+
+```bash
+php artisan prunekeeper:archive --model="App\Models\Flight"
 ```
 
 ## Scheduling

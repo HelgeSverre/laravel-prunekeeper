@@ -74,43 +74,37 @@
 
 ✅ **FIXED** - Added test `it cleans up temp files when cleanup_temp_files is true` in `ArchiveBeforePruningTest.php` and `it respects shouldCleanupTempFiles config` in `ArchivedPrunablesTest.php`
 
-### Lower Priority
+### Lower Priority - ✅ MOSTLY ADDRESSED
 
-#### 13. No tests for compression failure scenarios
+#### 13. ~~No tests for compression failure scenarios~~
 
-**Location:** `FileCompressorTest.php`
-**Issue:** Only tests happy path. Missing tests for:
+✅ **FIXED** - Added tests `it fails when source file does not exist` and `it fails when file is deleted before compression` in `FileCompressorTest.php`
 
-- Invalid file path
-- Permission errors
-- Disk space issues
+#### 14. ~~No tests for storage upload failures~~
 
-#### 14. No tests for storage upload failures
+✅ **FIXED** - Added tests `it throws exception when storage upload fails` and `it logs error when storage upload fails with fail_silently enabled` in `ArchiveBeforePruningTest.php`
 
-**Location:** Feature tests
-**Issue:** What happens when `disk()->put()` returns `false`? The error handling exists but isn't tested.
-**Reference:** `src/Listeners/ArchiveBeforePruning.php:165-167`
+#### 15. ~~No tests for empty file validation~~
 
-#### 15. No tests for empty file validation
-
-**Location:** Feature tests
-**Issue:** The validation for empty export files exists but isn't tested.
-**Reference:** `src/Listeners/ArchiveBeforePruning.php:127-133`
+✅ **FIXED** - Added tests `it throws exception when export produces empty file`, `it includes expected record count in empty file error message`, and `it throws exception when export file does not exist` in `ArchiveBeforePruningTest.php`
 
 #### 16. No tests for `file_open_mode` config option
 
 **Location:** Unit tests
 **Issue:** Added to config but no tests verify it's used correctly.
 **Reference:** `src/Prunekeeper.php:241-244`
+**Note:** Config retrieval is tested, but actual usage in exporters is not.
 
-#### 17. Missing tests for model discovery edge cases
+#### 17. ~~Missing tests for model discovery edge cases~~
 
-**Location:** Command tests
-**Issue:** `discoverModels()` in both commands isn't tested for:
+✅ **FIXED** - Created `tests/Unit/ArchivableModelsTest.php` with 15 tests covering:
 
-- Empty Models directory
-- Nested model directories
-- Non-model PHP files in directory
+- Empty/missing directories handling
+- String vs array config values
+- Glob pattern handling (single `*` and recursive `**`)
+- Namespace conversion from paths
+- Path expansion logic
+- Trait filtering with error/warning callbacks
 
 ---
 
@@ -118,29 +112,30 @@
 
 ### High Priority
 
-#### 1. SQL Exporter is MySQL-specific
+#### 1. ~~SQL Exporter is MySQL-specific~~
 
-**Location:** `src/Exporters/SqlExporter.php:75-78`
-**Issue:** Uses backticks (`) for identifier escaping, which is MySQL/MariaDB syntax.
+✅ **FIXED** - Now uses Laravel's Grammar classes for database-specific identifier escaping:
 
-- PostgreSQL uses double quotes (`"`)
-- SQLite accepts both but prefers double quotes
-- SQL Server uses square brackets (`[]`)
-  **Impact:** Generated SQL files won't import correctly on non-MySQL databases.
-  **Suggestion:** Detect database driver and use appropriate escaping, or add a config option.
+- MySQL/MariaDB: backticks (`)
+- PostgreSQL/SQLite: double quotes (")
+- SQL Server: square brackets ([])
 
-#### 2. Custom filename from model doesn't append `.zip` extension
+The `SqlExporter` now gets the Grammar from the model's connection and uses `$grammar->wrapTable()` and `$grammar->columnize()` for identifier escaping.
 
-**Location:** `src/Listeners/ArchiveBeforePruning.php:139-140`
-**Issue:** When a model implements `getArchiveFilename()`, the returned value is used as-is. If compression is enabled, the file will be compressed but the filename won't reflect this.
+Added integration tests in `tests/Integration/SqlExporterDatabaseTest.php` to verify SQL export works across MySQL, PostgreSQL, MariaDB, and SQLite.
+
+#### 2. ~~Custom filename from model doesn't append `.zip` extension~~
+
+✅ **FIXED** - Added automatic `.zip` extension appending in `src/Prunekeeper.php`:
 
 ```php
-$filename = $model->getArchiveFilename($format)
-    ?? $this->archivedPrunables->generateFilename($model, $format, $shouldCompress);
+// Append .zip extension to custom filenames when compression is enabled
+if ($shouldCompress && ! str_ends_with($filename, '.zip')) {
+    $filename .= '.zip';
+}
 ```
 
-**Impact:** File extension won't match actual format when using custom filenames with compression.
-**Suggestion:** Append `.zip` to custom filenames when compression is enabled.
+Custom filenames from `getArchiveFilename()` now automatically get `.zip` appended when compression is enabled (unless they already end with `.zip`).
 
 #### 3. No retry mechanism for storage uploads
 
@@ -149,18 +144,17 @@ $filename = $model->getArchiveFilename($format)
 **Impact:** Intermittent network issues cause lost archives.
 **Suggestion:** Add configurable retry with exponential backoff.
 
-### Medium Priority
+### Medium Priority - ✅ PARTIALLY ADDRESSED
 
-#### 4. Model discovery is limited to `app/Models`
+#### 4. ~~Model discovery is limited to `app/Models`~~
 
-**Location:** `src/Commands/ArchiveCommand.php:115-140`, `src/Commands/ValidateCommand.php:105-129`
-**Issue:** Only discovers models in `app/Models` directory with `App\Models\` namespace.
-**Impact:** Won't find models in:
+✅ **FIXED** - Added configurable `models_path` option in `config/prunekeeper.php`:
 
-- Custom namespace locations
-- Domain-driven design structures (e.g., `App\Domain\Users\Models\`)
-- Package models
-  **Suggestion:** Allow configurable model paths/namespaces.
+- Supports string or array of paths
+- Default: `['app/Models', 'app']`
+- Supports glob patterns (`*` for single level, `**` for recursive)
+- Example: `'app/Domain/*/Models'` or `'app/Modules/**/Models'`
+- Extracted to shared `ArchivableModels` class used by both commands
 
 #### 5. ~~No event dispatching~~
 
@@ -180,12 +174,19 @@ Added `tests/Feature/EventsTest.php` with 12 tests for event dispatching.
 **Impact:** Silent data corruption during upload goes undetected.
 **Suggestion:** Calculate MD5/SHA256 of local file and verify after upload.
 
-#### 7. Missing JSON encoding error handling
+#### 7. ~~Missing JSON encoding error handling~~
 
-**Location:** `src/Exporters/CsvExporter.php:68-70`, `src/Exporters/SqlExporter.php:97-99`
-**Issue:** If `json_encode()` fails (e.g., invalid UTF-8 sequences), CsvExporter returns `null`, SqlExporter uses the failed result.
-**Impact:** Silent data loss or corrupted exports.
-**Suggestion:** Log warning or throw exception on JSON encoding failure.
+✅ **FIXED** - Added logging for JSON encoding failures in both exporters:
+
+- `CsvExporter::flattenForCsv()` - Logs warning with column name and error, returns `null`
+- `SqlExporter::escapeValue()` - Logs warning with column name and error, returns `'NULL'`
+
+Example log output:
+```
+Prunekeeper: JSON encoding failed for column {"column": "metadata", "error": "Malformed UTF-8 characters"}
+```
+
+This ensures data corruption is logged while allowing the export to continue.
 
 ### Lower Priority
 
@@ -217,46 +218,66 @@ Added `tests/Feature/EventsTest.php` with 12 tests for event dispatching.
 **Issue:** The `performArchive()` method is nearly identical in both locations.
 **Suggestion:** Extract to a shared service class.
 
-#### 13. Code duplication in model discovery
+#### 13. ~~Code duplication in model discovery~~
 
-**Location:** `src/Commands/ArchiveCommand.php:115-140` and `src/Commands/ValidateCommand.php:105-129`
-**Issue:** `discoverModels()` method is duplicated between commands.
-**Suggestion:** Extract to a shared trait or service.
+✅ **FIXED** - Extracted model discovery to shared `ArchivableModels` class:
+
+- `ArchivableModels::get()` - auto-discovers models from configured paths
+- `ArchivableModels::filter()` - validates manually specified model classes
+- Both `ArchiveCommand` and `ValidateCommand` now use this shared class
 
 ---
 
 ## Summary
 
-| Category            | High | Medium | Low | Status                                        |
-| ------------------- | ---- | ------ | --- | --------------------------------------------- |
-| Testing Gaps        | 6    | 6      | 5   | ✅ 11/12 addressed (1 low priority remaining) |
-| Implementation Gaps | 3    | 4      | 6   | ✅ 1/13 addressed (events added)              |
+| Category            | High | Medium | Low | Status                                         |
+| ------------------- | ---- | ------ | --- | ---------------------------------------------- |
+| Testing Gaps        | 6    | 6      | 5   | ✅ 16/17 addressed (1 low priority remaining)  |
+| Implementation Gaps | 3    | 4      | 6   | ✅ 6/13 addressed                              |
 
 ### Testing Progress
 
-**Tests added:** 50+ new tests across 5 new/modified test files
+**Tests added:** 80+ new tests across 7 new/modified test files
 
-- `tests/Feature/ArchiveBeforePruningTest.php` - 7 new tests
+- `tests/Feature/ArchiveBeforePruningTest.php` - 13 new tests (was 7)
 - `tests/Feature/ArchiveCommandTest.php` - 15 new tests (new file)
 - `tests/Feature/ValidateCommandTest.php` - 8 new tests (new file)
 - `tests/Feature/EventsTest.php` - 12 new tests (new file)
 - `tests/Unit/ArchiveResultTest.php` - 11 new tests (new file)
 - `tests/Unit/ArchivedPrunablesTest.php` - 12 new tests
+- `tests/Unit/ArchivableModelsTest.php` - 15 new tests (new file)
+- `tests/Unit/FileCompressorTest.php` - 4 new tests
+- `tests/Integration/SqlExporterDatabaseTest.php` - 7 new tests (new file)
 - `tests/Fixtures/TestSoftDeletableModel.php` - new fixture
 
-**Total tests now:** 98 passing (was ~46)
+**Total tests now:** 129 passing (was ~46)
 
-### New Event Classes Added
+### New Classes Added
 
-- `src/Events/ArchiveStarting.php`
-- `src/Events/ArchiveCompleted.php`
-- `src/Events/ArchiveFailed.php`
-- `src/Events/ArchiveSkipped.php`
+**Event Classes (`src/Events/`):**
+- `ArchiveStarting.php`
+- `ArchiveCompleted.php`
+- `ArchiveFailed.php`
+- `ArchiveSkipped.php`
+
+**Utility Classes:**
+- `src/ArchivableModels.php` - Shared model discovery with glob pattern support
+
+### New Configuration Options
+
+- `models_path` - Configurable paths for model discovery (supports glob patterns)
 
 ### Remaining Implementation Priorities
 
-1. Fix custom filename not appending `.zip` when compressed
-2. Fix SQL Exporter database portability (or document MySQL-only limitation)
+1. ~~Fix custom filename not appending `.zip` when compressed~~ ✅ Done
+2. ~~Fix SQL Exporter database portability~~ ✅ Done (now supports MySQL, PostgreSQL, MariaDB, SQLite)
 3. Add retry mechanism for storage uploads
 4. ~~Add Laravel events~~ ✅ Done
-5. Refactor duplicate code between commands and listener
+5. ~~Extract model discovery to shared class~~ ✅ Done
+6. ~~Add JSON encoding error handling~~ ✅ Done
+7. Refactor duplicate archive code between commands and listener
+
+### Infrastructure Improvements
+
+- Added `docker-compose.yml` for local multi-database testing (MySQL 8.0, PostgreSQL 16, MariaDB 11)
+- Added `.github/workflows/tests.yml` for CI/CD with matrix testing across PHP 8.2/8.3/8.4, Laravel 11/12, and all supported databases
