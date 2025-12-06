@@ -6,6 +6,8 @@ namespace HelgeSverre\Prunekeeper;
 
 use HelgeSverre\Prunekeeper\Commands\ArchiveCommand;
 use HelgeSverre\Prunekeeper\Commands\ValidateCommand;
+use HelgeSverre\Prunekeeper\Compression\CompressionManager;
+use HelgeSverre\Prunekeeper\Contracts\CompressionDriver;
 use HelgeSverre\Prunekeeper\Contracts\Exporter;
 use HelgeSverre\Prunekeeper\Listeners\ArchiveBeforePruning;
 use Illuminate\Database\Events\ModelPruningStarting;
@@ -29,6 +31,14 @@ class PrunekeeperServiceProvider extends PackageServiceProvider
         $this->app->singleton(Prunekeeper::class);
 
         $this->app->bind(Exporter::class, fn ($app) => $app->make(Prunekeeper::class)->makeExporter());
+
+        $this->app->singleton(CompressionManager::class, function ($app) {
+            return new CompressionManager($app);
+        });
+
+        $this->app->bind(CompressionDriver::class, function ($app) {
+            return $app->make(CompressionManager::class)->driver();
+        });
     }
 
     public function packageBooted(): void

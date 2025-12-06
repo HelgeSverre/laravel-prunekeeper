@@ -7,6 +7,7 @@ namespace HelgeSverre\Prunekeeper\Exporters;
 use HelgeSverre\Prunekeeper\Contracts\Exporter;
 use HelgeSverre\Prunekeeper\Facades\Prunekeeper;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Log;
 use League\Csv\Writer;
 
 class CsvExporter implements Exporter
@@ -63,18 +64,37 @@ class CsvExporter implements Exporter
      */
     protected function flattenForCsv(array $data): array
     {
-        return array_map(function ($value) {
+        $result = [];
+
+        foreach ($data as $key => $value) {
             if (is_array($value) || is_object($value)) {
                 $json = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-                return $json === false ? null : $json;
+                if ($json === false) {
+                    Log::warning('Prunekeeper: JSON encoding failed for column', [
+                        'column' => $key,
+                        'error' => json_last_error_msg(),
+                    ]);
+
+                    $result[$key] = null;
+
+                    continue;
+                }
+
+                $result[$key] = $json;
+
+                continue;
             }
 
             if (is_bool($value)) {
-                return $value ? '1' : '0';
+                $result[$key] = $value ? '1' : '0';
+
+                continue;
             }
 
-            return $value;
-        }, $data);
+            $result[$key] = $value;
+        }
+
+        return $result;
     }
 }

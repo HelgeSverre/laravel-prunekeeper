@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace HelgeSverre\Prunekeeper;
 
+use HelgeSverre\Prunekeeper\Compression\CompressionManager;
 use HelgeSverre\Prunekeeper\Contracts\Archivable;
 use HelgeSverre\Prunekeeper\Contracts\Exporter;
 use HelgeSverre\Prunekeeper\Events\ArchiveCompleted;
@@ -14,7 +15,6 @@ use HelgeSverre\Prunekeeper\Exceptions\InvalidColumnException;
 use HelgeSverre\Prunekeeper\Exporters\CsvExporter;
 use HelgeSverre\Prunekeeper\Exporters\SqlExporter;
 use HelgeSverre\Prunekeeper\Support\ArchiveResult;
-use HelgeSverre\Prunekeeper\Support\FileCompressor;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -112,7 +112,7 @@ class Prunekeeper
         $compressed ??= $this->shouldCompress();
 
         $extension = $compressed
-            ? "{$format}.zip"
+            ? "{$format}.{$this->getCompressionExtension()}"
             : $format;
 
         return sprintf(
@@ -355,7 +355,23 @@ class Prunekeeper
      */
     public function shouldCompress(): bool
     {
-        return (bool) config('prunekeeper.compress', true);
+        return (bool) config('prunekeeper.compression.enabled', true);
+    }
+
+    /**
+     * Get the compression manager instance.
+     */
+    public function compression(): CompressionManager
+    {
+        return app(CompressionManager::class);
+    }
+
+    /**
+     * Get the compression extension for the current driver.
+     */
+    public function getCompressionExtension(): string
+    {
+        return $this->compression()->driver()->extension();
     }
 
     /**
@@ -404,10 +420,17 @@ class Prunekeeper
             $filename = $model->getArchiveFilename($format)
                 ?? $this->generateFilename($model, $format, $shouldCompress);
 
+            // Get compression extension and append to custom filenames when compression is enabled
+            $compressionExtension = $shouldCompress ? $this->getCompressionExtension() : null;
+
+            if ($shouldCompress && $compressionExtension && ! str_ends_with($filename, '.'.$compressionExtension)) {
+                $filename .= '.'.$compressionExtension;
+            }
+
             $fileToUpload = $tempFile;
 
             if ($shouldCompress) {
-                $compressedFile = FileCompressor::compress($tempFile, $format);
+                $compressedFile = $this->compression()->driver()->compress($tempFile, 'export.'.$format);
                 $fileToUpload = $compressedFile;
             }
 
