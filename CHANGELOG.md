@@ -7,6 +7,7 @@ All notable changes to `laravel-prunekeeper` will be documented in this file.
 ## [1.0.0] - 2025-01-XX
 
 ### Added
+
 - Initial release
 - `ArchivePrunedRecords` trait for models
 - CSV and SQL export formats
