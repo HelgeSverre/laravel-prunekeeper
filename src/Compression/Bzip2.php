@@ -11,6 +11,7 @@ class Bzip2 implements CompressionDriver
 {
     protected int $bufferSize = 65536; // 64KB
 
+    /** @param array<string, mixed> $config */
     public function __construct(array $config = [])
     {
         if (isset($config['buffer_size'])) {

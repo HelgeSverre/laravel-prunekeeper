@@ -362,14 +362,17 @@ class Prunekeeper
     /**
      * Build the prunable query for a model, including soft-deleted records if applicable.
      *
+     * Models must use the Prunable or MassPrunable trait.
+     *
      * @return Builder<Model>
      */
     public static function makePrunableQuery(Model $model): Builder
     {
-        $query = $model->prunable();
+        /** @var Builder<Model> $query */
+        $query = $model->prunable(); // @phpstan-ignore method.notFound (Model uses Prunable or MassPrunable trait)
 
         if (in_array(SoftDeletes::class, class_uses_recursive($model::class))) {
-            $query->withTrashed();
+            $query->withTrashed(); // @phpstan-ignore method.notFound (Model uses SoftDeletes trait)
         }
 
         return $query;
@@ -455,8 +458,8 @@ class Prunekeeper
             }
 
             if (static::shouldCleanupTempFiles()) {
-                static::cleanupTempFile($tempFile, $onCleanupError);
-                static::cleanupTempFile($compressedFile, $onCleanupError);
+                self::cleanupTempFile($tempFile, $onCleanupError);
+                self::cleanupTempFile($compressedFile, $onCleanupError);
             }
         }
     }
