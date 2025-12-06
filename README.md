@@ -2,9 +2,9 @@
 
 **Archive prunable Eloquent records before deletion.**
 
-[![Latest Version on Packagist](https://img.shields.io/packagist/v/helgeesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgeesverre/laravel-prunekeeper)
-[![Total Downloads](https://img.shields.io/packagist/dt/helgeesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgeesverre/laravel-prunekeeper)
-[![License](https://img.shields.io/packagist/l/helgeesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgeesverre/laravel-prunekeeper)
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/helgesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgesverre/laravel-prunekeeper)
+[![Total Downloads](https://img.shields.io/packagist/dt/helgesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgesverre/laravel-prunekeeper)
+[![License](https://img.shields.io/packagist/l/helgesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgesverre/laravel-prunekeeper)
 
 ![Prunekeeper](art/header.png)
 
@@ -40,7 +40,7 @@ When you run `php artisan model:prune`, Prunekeeper automatically:
 ## Installation
 
 ```bash
-composer require helgeesverre/laravel-prunekeeper
+composer require helgesverre/laravel-prunekeeper
 ```
 
 Optionally publish the configuration:
