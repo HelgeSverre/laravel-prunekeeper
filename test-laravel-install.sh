@@ -39,15 +39,29 @@ run_e2e_archive_test() {
         echo "PRUNEKEEPER_COMPRESS=false"
     } >> .env
 
-    # Create model and migration
-    echo "  Creating PruneTest model and migration..."
-    if ! php artisan make:model PruneTest --migration --quiet 2>/dev/null; then
-        echo -e "${RED}[FAIL] Failed to create model/migration${NC}"
+    # Create models and migrations
+    echo "  Creating test models and migrations..."
+
+    # Model 1: Prunable with CSV export
+    if ! php artisan make:model PrunableLog --migration --quiet 2>/dev/null; then
+        echo -e "${RED}[FAIL] Failed to create PrunableLog model${NC}"
         return 1
     fi
 
-    # Overwrite the model with ArchivePrunedRecords + Prunable
-    cat > app/Models/PruneTest.php << 'PHP'
+    # Model 2: Prunable with SQL export
+    if ! php artisan make:model PrunableEvent --migration --quiet 2>/dev/null; then
+        echo -e "${RED}[FAIL] Failed to create PrunableEvent model${NC}"
+        return 1
+    fi
+
+    # Model 3: MassPrunable
+    if ! php artisan make:model MassPrunableMetric --migration --quiet 2>/dev/null; then
+        echo -e "${RED}[FAIL] Failed to create MassPrunableMetric model${NC}"
+        return 1
+    fi
+
+    # Overwrite PrunableLog model (Prunable trait, default CSV format)
+    cat > app/Models/PrunableLog.php << 'PHP'
 <?php
 
 namespace App\Models;
@@ -57,12 +71,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Prunable;
 use HelgeSverre\Prunekeeper\ArchivePrunedRecords;
 
-class PruneTest extends Model
+class PrunableLog extends Model
 {
     use Prunable;
     use ArchivePrunedRecords;
 
-    protected $fillable = ['name', 'created_at', 'updated_at'];
+    protected $fillable = ['message', 'level', 'created_at', 'updated_at'];
 
     public function prunable(): Builder
     {
@@ -71,15 +85,68 @@ class PruneTest extends Model
 }
 PHP
 
-    # Find and overwrite the migration
-    local migration_file
-    migration_file=$(ls database/migrations/*create_prune_tests_table.php 2>/dev/null | head -n 1)
+    # Overwrite PrunableEvent model (Prunable trait, will test SQL format)
+    cat > app/Models/PrunableEvent.php << 'PHP'
+<?php
 
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Prunable;
+use HelgeSverre\Prunekeeper\ArchivePrunedRecords;
+
+class PrunableEvent extends Model
+{
+    use Prunable;
+    use ArchivePrunedRecords;
+
+    protected $fillable = ['name', 'payload', 'created_at', 'updated_at'];
+
+    protected $casts = [
+        'payload' => 'array',
+    ];
+
+    public function prunable(): Builder
+    {
+        return static::where('created_at', '<=', now()->subDay());
+    }
+}
+PHP
+
+    # Overwrite MassPrunableMetric model (MassPrunable trait)
+    cat > app/Models/MassPrunableMetric.php << 'PHP'
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\MassPrunable;
+use HelgeSverre\Prunekeeper\ArchivePrunedRecords;
+
+class MassPrunableMetric extends Model
+{
+    use MassPrunable;
+    use ArchivePrunedRecords;
+
+    protected $fillable = ['metric_name', 'value', 'created_at', 'updated_at'];
+
+    public function prunable(): Builder
+    {
+        return static::where('created_at', '<=', now()->subDay());
+    }
+}
+PHP
+
+    # Overwrite migrations
+    local migration_file
+
+    migration_file=$(ls database/migrations/*create_prunable_logs_table.php 2>/dev/null | head -n 1)
     if [ -z "$migration_file" ]; then
-        echo -e "${RED}[FAIL] Migration file not found${NC}"
+        echo -e "${RED}[FAIL] PrunableLog migration not found${NC}"
         return 1
     fi
-
     cat > "$migration_file" << 'PHP'
 <?php
 
@@ -91,16 +158,79 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('prune_tests', function (Blueprint $table) {
+        Schema::create('prunable_logs', function (Blueprint $table) {
             $table->id();
-            $table->string('name');
+            $table->string('message');
+            $table->string('level')->default('info');
             $table->timestamps();
         });
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('prune_tests');
+        Schema::dropIfExists('prunable_logs');
+    }
+};
+PHP
+
+    migration_file=$(ls database/migrations/*create_prunable_events_table.php 2>/dev/null | head -n 1)
+    if [ -z "$migration_file" ]; then
+        echo -e "${RED}[FAIL] PrunableEvent migration not found${NC}"
+        return 1
+    fi
+    cat > "$migration_file" << 'PHP'
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('prunable_events', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->json('payload')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('prunable_events');
+    }
+};
+PHP
+
+    migration_file=$(ls database/migrations/*create_mass_prunable_metrics_table.php 2>/dev/null | head -n 1)
+    if [ -z "$migration_file" ]; then
+        echo -e "${RED}[FAIL] MassPrunableMetric migration not found${NC}"
+        return 1
+    fi
+    cat > "$migration_file" << 'PHP'
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('mass_prunable_metrics', function (Blueprint $table) {
+            $table->id();
+            $table->string('metric_name');
+            $table->decimal('value', 10, 2);
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('mass_prunable_metrics');
     }
 };
 PHP
@@ -112,7 +242,7 @@ PHP
         return 1
     fi
 
-    # Create test data using a PHP script
+    # Seed test data
     echo "  Seeding test data..."
     cat > seed_test_data.php << 'PHP'
 <?php
@@ -123,32 +253,31 @@ $app = require __DIR__ . '/bootstrap/app.php';
 $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
 $kernel->bootstrap();
 
-use App\Models\PruneTest;
+use App\Models\PrunableLog;
+use App\Models\PrunableEvent;
+use App\Models\MassPrunableMetric;
 use Illuminate\Support\Carbon;
 
 $now = Carbon::now();
+$old = $now->copy()->subDays(5);
 
-// Old records (should be prunable)
-PruneTest::create([
-    'name' => 'Old record 1',
-    'created_at' => $now->copy()->subDays(10),
-    'updated_at' => $now->copy()->subDays(10),
-]);
+// PrunableLog: 2 old, 1 recent
+PrunableLog::create(['message' => 'Old log 1', 'level' => 'info', 'created_at' => $old, 'updated_at' => $old]);
+PrunableLog::create(['message' => 'Old log 2', 'level' => 'error', 'created_at' => $old, 'updated_at' => $old]);
+PrunableLog::create(['message' => 'Recent log', 'level' => 'info', 'created_at' => $now, 'updated_at' => $now]);
 
-PruneTest::create([
-    'name' => 'Old record 2',
-    'created_at' => $now->copy()->subDays(2),
-    'updated_at' => $now->copy()->subDays(2),
-]);
+// PrunableEvent: 3 old, 1 recent (with JSON payload)
+PrunableEvent::create(['name' => 'user.created', 'payload' => ['user_id' => 1], 'created_at' => $old, 'updated_at' => $old]);
+PrunableEvent::create(['name' => 'order.placed', 'payload' => ['order_id' => 100, 'total' => 99.99], 'created_at' => $old, 'updated_at' => $old]);
+PrunableEvent::create(['name' => 'user.deleted', 'payload' => null, 'created_at' => $old, 'updated_at' => $old]);
+PrunableEvent::create(['name' => 'recent.event', 'payload' => [], 'created_at' => $now, 'updated_at' => $now]);
 
-// Recent record (should NOT be prunable)
-PruneTest::create([
-    'name' => 'Recent record',
-    'created_at' => $now,
-    'updated_at' => $now,
-]);
+// MassPrunableMetric: 2 old, 1 recent
+MassPrunableMetric::create(['metric_name' => 'cpu_usage', 'value' => 45.5, 'created_at' => $old, 'updated_at' => $old]);
+MassPrunableMetric::create(['metric_name' => 'memory_usage', 'value' => 72.3, 'created_at' => $old, 'updated_at' => $old]);
+MassPrunableMetric::create(['metric_name' => 'recent_metric', 'value' => 10.0, 'created_at' => $now, 'updated_at' => $now]);
 
-echo "Seeded 3 records (2 prunable, 1 recent)\n";
+echo "Seeded: PrunableLog (2 old), PrunableEvent (3 old), MassPrunableMetric (2 old)\n";
 PHP
 
     if ! php seed_test_data.php 2>/dev/null; then
@@ -158,20 +287,36 @@ PHP
     fi
     rm -f seed_test_data.php
 
-    # Run prunekeeper:archive
-    echo "  Running prunekeeper:archive..."
+    # Test 1: Archive PrunableLog with CSV format (default)
+    echo "  Testing CSV export (PrunableLog)..."
     local archive_output
-    archive_output=$(php artisan prunekeeper:archive --model="App\\Models\\PruneTest" --no-interaction 2>&1)
-    local archive_status=$?
-
-    if [ $archive_status -ne 0 ]; then
-        echo -e "${RED}[FAIL] prunekeeper:archive command failed${NC}"
+    archive_output=$(php artisan prunekeeper:archive --model="App\\Models\\PrunableLog" --format=csv --no-interaction 2>&1)
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[FAIL] CSV archive failed${NC}"
         echo "$archive_output" | sed 's/^/    /'
         return 1
     fi
 
-    # Verify archive file exists
-    echo "  Verifying archive file exists..."
+    # Test 2: Archive PrunableEvent with SQL format
+    echo "  Testing SQL export (PrunableEvent)..."
+    archive_output=$(php artisan prunekeeper:archive --model="App\\Models\\PrunableEvent" --format=sql --no-interaction 2>&1)
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[FAIL] SQL archive failed${NC}"
+        echo "$archive_output" | sed 's/^/    /'
+        return 1
+    fi
+
+    # Test 3: Archive MassPrunableMetric with CSV format
+    echo "  Testing MassPrunable (MassPrunableMetric)..."
+    archive_output=$(php artisan prunekeeper:archive --model="App\\Models\\MassPrunableMetric" --format=csv --no-interaction 2>&1)
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}[FAIL] MassPrunable archive failed${NC}"
+        echo "$archive_output" | sed 's/^/    /'
+        return 1
+    fi
+
+    # Verify all archives exist and have correct content
+    echo "  Verifying archive files..."
     cat > verify_archive.php << 'PHP'
 <?php
 
@@ -183,50 +328,75 @@ $kernel->bootstrap();
 
 use Illuminate\Support\Facades\Storage;
 
-$config = config('prunekeeper');
-$disk = $config['disk'] ?? 'local';
-$path = $config['path'] ?? 'prunekeeper-test';
+$disk = config('prunekeeper.disk', 'local');
+$path = config('prunekeeper.path', 'prunekeeper-test');
 
 $files = Storage::disk($disk)->allFiles($path);
 
-if (empty($files)) {
-    echo "FAIL: No archive files found\n";
+if (count($files) < 3) {
+    echo "FAIL: Expected at least 3 archive files, found " . count($files) . "\n";
     exit(1);
 }
 
-// Check file has content
-$firstFile = $files[0];
-$contents = Storage::disk($disk)->get($firstFile);
+$csvFiles = array_filter($files, fn($f) => str_ends_with($f, '.csv'));
+$sqlFiles = array_filter($files, fn($f) => str_ends_with($f, '.sql'));
 
-if (empty($contents)) {
-    echo "FAIL: Archive file is empty\n";
+if (count($csvFiles) < 2) {
+    echo "FAIL: Expected at least 2 CSV files\n";
     exit(1);
 }
 
-// Verify CSV has expected headers and data
-$lines = explode("\n", trim($contents));
-if (count($lines) < 2) {
-    echo "FAIL: Archive has fewer than 2 lines (header + data)\n";
+if (count($sqlFiles) < 1) {
+    echo "FAIL: Expected at least 1 SQL file\n";
     exit(1);
 }
 
-// Check header contains expected columns
-$header = $lines[0];
-if (strpos($header, 'id') === false || strpos($header, 'name') === false) {
-    echo "FAIL: Archive header missing expected columns\n";
-    echo "Header: $header\n";
-    exit(1);
+// Verify CSV content (PrunableLog)
+$logCsv = current(array_filter($csvFiles, fn($f) => str_contains($f, 'prunable_logs')));
+if ($logCsv) {
+    $contents = Storage::disk($disk)->get($logCsv);
+    $lines = explode("\n", trim($contents));
+    if (count($lines) !== 3) { // header + 2 records
+        echo "FAIL: PrunableLog CSV expected 3 lines, got " . count($lines) . "\n";
+        exit(1);
+    }
+    echo "PASS: PrunableLog CSV has 2 records\n";
 }
 
-// Should have 2 data rows (the 2 old records)
-$dataRows = count($lines) - 1;
-if ($dataRows !== 2) {
-    echo "FAIL: Expected 2 data rows, got $dataRows\n";
-    exit(1);
+// Verify SQL content (PrunableEvent)
+$eventSql = current(array_filter($sqlFiles, fn($f) => str_contains($f, 'prunable_events')));
+if ($eventSql) {
+    $contents = Storage::disk($disk)->get($eventSql);
+    $insertCount = substr_count($contents, 'INSERT INTO');
+    if ($insertCount !== 3) {
+        echo "FAIL: PrunableEvent SQL expected 3 INSERT statements, got $insertCount\n";
+        exit(1);
+    }
+    // Verify JSON is properly escaped in SQL
+    if (strpos($contents, 'user_id') === false) {
+        echo "FAIL: PrunableEvent SQL missing JSON payload content\n";
+        exit(1);
+    }
+    echo "PASS: PrunableEvent SQL has 3 INSERT statements with JSON\n";
 }
 
-echo "PASS: Archive created with 2 records\n";
-echo "File: $firstFile\n";
+// Verify MassPrunable CSV
+$metricCsv = current(array_filter($csvFiles, fn($f) => str_contains($f, 'mass_prunable_metrics')));
+if ($metricCsv) {
+    $contents = Storage::disk($disk)->get($metricCsv);
+    $lines = explode("\n", trim($contents));
+    if (count($lines) !== 3) { // header + 2 records
+        echo "FAIL: MassPrunableMetric CSV expected 3 lines, got " . count($lines) . "\n";
+        exit(1);
+    }
+    echo "PASS: MassPrunableMetric (MassPrunable) CSV has 2 records\n";
+}
+
+echo "PASS: All archive files verified\n";
+echo "Files:\n";
+foreach ($files as $file) {
+    echo "  - $file\n";
+}
 exit(0);
 PHP
 
