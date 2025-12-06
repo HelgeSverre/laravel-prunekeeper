@@ -106,7 +106,8 @@ e2e:
 # Run tests with coverage report (uses herd for Xdebug)
 [group('test')]
 coverage *args: up wait
-    herd coverage vendor/bin/pest --coverage {{ args }}
+    herd coverage vendor/bin/pest --coverage --coverage-html=coverage {{ args }}
+    open coverage/index.html
 
 # Run a specific test file or filter
 [group('test')]
@@ -120,12 +121,12 @@ dtest: install up wait
 
 # Run unit tests in Docker container
 [group('test')]
-dtest-unit: install  up wait
+dtest-unit: install up wait
     docker compose run --rm php vendor/bin/pest --testsuite=Unit
 
 # Run integration tests in Docker container
 [group('test')]
-dtest-integration: install  up wait
+dtest-integration: install up wait
     docker compose run --rm php vendor/bin/pest --testsuite=Integration
 
 # Run tests with coverage in Docker container (uses pcov)
