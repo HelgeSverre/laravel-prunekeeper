@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace HelgeSverre\Prunekeeper\Exporters;
 
 use HelgeSverre\Prunekeeper\Contracts\Exporter;
-use HelgeSverre\Prunekeeper\Facades\Prunekeeper;
+use HelgeSverre\Prunekeeper\Prunekeeper;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Log;
 use League\Csv\Writer;

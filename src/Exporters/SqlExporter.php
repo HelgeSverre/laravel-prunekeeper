@@ -5,8 +5,7 @@ declare(strict_types=1);
 namespace HelgeSverre\Prunekeeper\Exporters;
 
 use HelgeSverre\Prunekeeper\Contracts\Exporter;
-use HelgeSverre\Prunekeeper\Facades\Prunekeeper;
-use HelgeSverre\Prunekeeper\Prunekeeper as PrunekeeperManager;
+use HelgeSverre\Prunekeeper\Prunekeeper;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -32,7 +31,7 @@ class SqlExporter implements Exporter
         $table = Prunekeeper::resolveTableName($model);
         $chunkSize = Prunekeeper::getChunkSize();
 
-        fwrite($handle, sprintf("-- Created with Laravel Prunekeeper (version %s)\n", PrunekeeperManager::VERSION));
+        fwrite($handle, sprintf("-- Created with Laravel Prunekeeper (version %s)\n", Prunekeeper::VERSION));
         fwrite($handle, sprintf("-- Table: %s\n", $table));
         fwrite($handle, sprintf("-- Generated: %s\n", now()->toIso8601String()));
         fwrite($handle, "-- Format: SQL INSERT statements\n\n");
