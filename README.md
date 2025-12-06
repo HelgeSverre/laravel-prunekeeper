@@ -4,7 +4,7 @@
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/helgesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgesverre/laravel-prunekeeper)
 [![Total Downloads](https://img.shields.io/packagist/dt/helgesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgesverre/laravel-prunekeeper)
-[![License](https://img.shields.io/packagist/l/helgesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgesverre/laravel-prunekeeper)
+[![License](https://img.shields.io/packagist/l/helgesverre/laravel-prunekeeper.svg?style=flat-square&v=2)](https://packagist.org/packages/helgesverre/laravel-prunekeeper)
 
 ![Prunekeeper](art/header.png)
 
