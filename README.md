@@ -1,12 +1,14 @@
 # Prunekeeper
 
-![Prunekeeper](art/header.png)
-
 **Archive prunable Eloquent records before deletion.**
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/helgeesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgeesverre/laravel-prunekeeper)
 [![Total Downloads](https://img.shields.io/packagist/dt/helgeesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgeesverre/laravel-prunekeeper)
 [![License](https://img.shields.io/packagist/l/helgeesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgeesverre/laravel-prunekeeper)
+
+![Prunekeeper](art/header.png)
+
+---
 
 Laravel's `Prunable` trait lets you automatically clean up old database records. <br> But once they're gone, they're
 gone forever.
