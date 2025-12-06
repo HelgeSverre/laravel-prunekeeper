@@ -121,10 +121,10 @@ return [
     | Paths to scan for models using the ArchivePrunedRecords trait.
     | Supports glob patterns for flexible directory structures.
     |
-    | Single path:     "app/Models"
-    | Wildcard:        "app/Domain/asterisk/Models" (use actual asterisk)
-    | Recursive:       "app/Modules/double-asterisk/Models" (use **)
-    | Multiple paths:  ["app/Models", "app/Domain/asterisk/Models"]
+    | Examples:
+    |   "app/Models"              - Standard Laravel location
+    |   "app/Domain/✱/Models"     - Single-level wildcard (use *)
+    |   "app/Modules/✱✱/Models"   - Recursive wildcard (use **)
     |
     */
     'models_path' => ['app/Models', 'app'],
