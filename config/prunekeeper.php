@@ -40,11 +40,22 @@ return [
     | Compression
     |--------------------------------------------------------------------------
     |
-    | Whether to compress the exported file using ZIP compression before
-    | uploading to storage. Recommended for reducing storage costs.
+    | Configure compression for archived exports. You can enable/disable
+    | compression, choose the driver, and set driver-specific options.
+    |
+    | Supported drivers: "zip", "gzip", "targz", "bzip2"
     |
     */
-    'compress' => env('PRUNEKEEPER_COMPRESS', true),
+    'compression' => [
+        'enabled' => env('PRUNEKEEPER_COMPRESS', true),
+        'driver' => env('PRUNEKEEPER_COMPRESSION_DRIVER', 'zip'),
+        'drivers' => [
+            'zip' => [],
+            'gzip' => ['buffer_size' => 65536],
+            'targz' => [],
+            'bzip2' => ['buffer_size' => 65536],
+        ],
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -101,4 +112,20 @@ return [
     |
     */
     'file_open_mode' => env('PRUNEKEEPER_FILE_OPEN_MODE', 'w'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Model Discovery Paths
+    |--------------------------------------------------------------------------
+    |
+    | Paths to scan for models using the ArchivePrunedRecords trait.
+    | Supports glob patterns for flexible directory structures.
+    |
+    | Single path:     "app/Models"
+    | Wildcard:        "app/Domain/asterisk/Models" (use actual asterisk)
+    | Recursive:       "app/Modules/double-asterisk/Models" (use **)
+    | Multiple paths:  ["app/Models", "app/Domain/asterisk/Models"]
+    |
+    */
+    'models_path' => ['app/Models', 'app'],
 ];
