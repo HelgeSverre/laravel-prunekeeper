@@ -4,15 +4,13 @@ declare(strict_types=1);
 
 namespace HelgeSverre\Prunekeeper\Commands;
 
-use HelgeSverre\Prunekeeper\ArchivePrunedRecords;
+use HelgeSverre\Prunekeeper\ArchivableModels;
 use HelgeSverre\Prunekeeper\Contracts\Archivable;
 use HelgeSverre\Prunekeeper\Prunekeeper;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
-use Symfony\Component\Finder\Finder;
 
 class ValidateCommand extends Command
 {
@@ -77,56 +75,14 @@ class ValidateCommand extends Command
         $models = $this->option('model');
 
         if (! empty($models)) {
-            return collect($models)->filter(function ($model) {
-                if (! class_exists($model)) {
-                    $this->components->error("Model class not found: {$model}");
-
-                    return false;
-                }
-
-                if (! in_array(ArchivePrunedRecords::class, class_uses_recursive($model))) {
-                    $this->components->warn("Model does not use ArchivePrunedRecords trait: {$model}");
-
-                    return false;
-                }
-
-                return true;
-            });
+            return ArchivableModels::filter(
+                $models,
+                fn ($m, $msg) => $this->components->error($msg),
+                fn ($m, $msg) => $this->components->warn($msg)
+            );
         }
 
-        return $this->discoverModels();
-    }
-
-    /**
-     * Discover models that use the ArchivePrunedRecords trait.
-     *
-     * @return Collection<int, class-string>
-     */
-    protected function discoverModels(): Collection
-    {
-        $modelsPath = app_path('Models');
-
-        if (! File::isDirectory($modelsPath)) {
-            return collect();
-        }
-
-        $finder = (new Finder)->files()->name('*.php')->in($modelsPath);
-
-        return collect($finder)
-            ->map(function ($file) {
-                $className = 'App\\Models\\'.str_replace(
-                    ['/', '.php'],
-                    ['\\', ''],
-                    $file->getRelativePathname()
-                );
-
-                return class_exists($className) ? $className : null;
-            })
-            ->filter()
-            ->filter(function ($className) {
-                return in_array(ArchivePrunedRecords::class, class_uses_recursive($className));
-            })
-            ->values();
+        return ArchivableModels::get();
     }
 
     /**

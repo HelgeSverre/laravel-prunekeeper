@@ -4,22 +4,17 @@ declare(strict_types=1);
 
 namespace HelgeSverre\Prunekeeper\Commands;
 
-use HelgeSverre\Prunekeeper\ArchivePrunedRecords;
+use HelgeSverre\Prunekeeper\ArchivableModels;
 use HelgeSverre\Prunekeeper\Contracts\Archivable;
-use HelgeSverre\Prunekeeper\Contracts\Exporter;
-use HelgeSverre\Prunekeeper\Exporters\CsvExporter;
-use HelgeSverre\Prunekeeper\Exporters\SqlExporter;
+use HelgeSverre\Prunekeeper\Events\ArchiveSkipped;
 use HelgeSverre\Prunekeeper\Prunekeeper;
 use HelgeSverre\Prunekeeper\Support\ArchiveResult;
-use HelgeSverre\Prunekeeper\Support\FileCompressor;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\File;
-use RuntimeException;
-use Symfony\Component\Finder\Finder;
+use Throwable;
 
 class ArchiveCommand extends Command
 {
@@ -38,8 +33,7 @@ class ArchiveCommand extends Command
     protected $description = 'Archive prunable model records without deleting them';
 
     public function __construct(
-        protected Prunekeeper $prunekeeper,
-        protected FileCompressor $compressor
+        protected Prunekeeper $prunekeeper
     ) {
         parent::__construct();
     }
@@ -86,57 +80,14 @@ class ArchiveCommand extends Command
         $models = $this->option('model');
 
         if (! empty($models)) {
-            return collect($models)->filter(function ($model) {
-                if (! class_exists($model)) {
-                    $this->components->error("Model class not found: {$model}");
-
-                    return false;
-                }
-
-                if (! in_array(ArchivePrunedRecords::class, class_uses_recursive($model))) {
-                    $this->components->warn("Model does not use ArchivePrunedRecords trait: {$model}");
-
-                    return false;
-                }
-
-                return true;
-            });
+            return ArchivableModels::filter(
+                $models,
+                fn ($m, $msg) => $this->components->error($msg),
+                fn ($m, $msg) => $this->components->warn($msg)
+            );
         }
 
-        // Auto-discover models with ArchivePrunedRecords trait
-        return $this->discoverModels();
-    }
-
-    /**
-     * Discover models that use the ArchivePrunedRecords trait.
-     *
-     * @return Collection<int, class-string>
-     */
-    protected function discoverModels(): Collection
-    {
-        $modelsPath = app_path('Models');
-
-        if (! File::isDirectory($modelsPath)) {
-            return collect();
-        }
-
-        $finder = (new Finder)->files()->name('*.php')->in($modelsPath);
-
-        return collect($finder)
-            ->map(function ($file) {
-                $className = 'App\\Models\\'.str_replace(
-                    ['/', '.php'],
-                    ['\\', ''],
-                    $file->getRelativePathname()
-                );
-
-                return class_exists($className) ? $className : null;
-            })
-            ->filter()
-            ->filter(function ($className) {
-                return in_array(ArchivePrunedRecords::class, class_uses_recursive($className));
-            })
-            ->values();
+        return ArchivableModels::get();
     }
 
     /**
@@ -151,12 +102,14 @@ class ArchiveCommand extends Command
 
         if (! method_exists($model, 'prunable')) {
             $this->components->warn("{$modelClass} does not have a prunable() method.");
+            $this->prunekeeper->fireArchiveSkipped($model, ArchiveSkipped::REASON_NO_PRUNABLE_METHOD);
 
             return null;
         }
 
         if (! $model->shouldArchiveBeforePruning()) {
             $this->components->warn("{$modelClass} has archiving disabled.");
+            $this->prunekeeper->fireArchiveSkipped($model, ArchiveSkipped::REASON_DISABLED);
 
             return null;
         }
@@ -172,20 +125,30 @@ class ArchiveCommand extends Command
 
         if ($count === 0) {
             $this->components->info("{$modelClass}: No prunable records found.");
+            $this->prunekeeper->fireArchiveSkipped($model, ArchiveSkipped::REASON_NO_RECORDS);
 
             return null;
         }
 
         if ($this->option('pretend')) {
             $this->components->info("{$modelClass}: {$count} records would be archived.");
+            $this->prunekeeper->fireArchiveSkipped($model, ArchiveSkipped::REASON_PRETEND_MODE);
 
             return null;
         }
 
         $result = null;
 
+        $this->prunekeeper->fireBeforeArchive($model, $count);
+
         $this->components->task("Archiving {$count} records from {$modelClass}", function () use ($model, $query, &$result) {
-            $result = $this->performArchive($model, clone $query);
+            try {
+                $result = $this->performArchive($model, clone $query);
+                $this->prunekeeper->fireAfterArchive($model, $result);
+            } catch (Throwable $e) {
+                $this->prunekeeper->fireArchiveFailed($model, $e);
+                throw $e;
+            }
         });
 
         if ($result !== null) {
@@ -207,102 +170,10 @@ class ArchiveCommand extends Command
      */
     protected function performArchive(Model $model, Builder $query): ArchiveResult
     {
-        $exporter = $this->getExporter();
-        $columns = $this->prunekeeper->resolveColumns($model);
-        $recordCount = $query->count();
+        $format = $this->option('format');
+        $exporter = $this->prunekeeper->makeExporter(is_string($format) ? $format : null);
+        $shouldCompress = ! $this->option('no-compress') && $this->prunekeeper->shouldCompress();
 
-        $tempFile = null;
-        $compressedFile = null;
-        $stream = null;
-
-        try {
-            // Export to temporary file
-            $tempFile = $exporter->export(clone $query, $columns);
-            $format = $exporter->extension();
-
-            // Validate export produced content
-            if (! file_exists($tempFile) || filesize($tempFile) === 0) {
-                $modelClass = $model::class;
-                throw new RuntimeException(
-                    "Export produced empty file for {$modelClass}. Expected {$recordCount} records."
-                );
-            }
-
-            // Compress if enabled
-            $shouldCompress = ! $this->option('no-compress') && $this->prunekeeper->shouldCompress();
-
-            // Determine the storage filename
-            $filename = $model->getArchiveFilename($format)
-                ?? $this->prunekeeper->generateFilename($model, $format, $shouldCompress);
-
-            $fileToUpload = $tempFile;
-
-            if ($shouldCompress) {
-                $compressedFile = $this->compressor->compress($tempFile, $format);
-                $fileToUpload = $compressedFile;
-            }
-
-            // Get file size before upload
-            $fileSize = filesize($fileToUpload) ?: 0;
-
-            // Upload to storage using stream for memory efficiency
-            $stream = fopen($fileToUpload, 'r');
-
-            if ($stream === false) {
-                $error = error_get_last();
-                throw new RuntimeException(
-                    "Failed to open temporary file: {$fileToUpload}. ".
-                    'Error: '.($error['message'] ?? 'Unknown error')
-                );
-            }
-
-            $uploaded = $this->prunekeeper->disk()->put($filename, $stream);
-
-            if ($uploaded === false) {
-                throw new RuntimeException("Failed to upload archive to storage: {$filename}");
-            }
-
-            return new ArchiveResult(
-                modelClass: get_class($model),
-                storagePath: $filename,
-                recordCount: $recordCount,
-                fileSize: $fileSize,
-                format: $format,
-                compressed: $shouldCompress
-            );
-        } finally {
-            // Always close stream
-            if (is_resource($stream)) {
-                fclose($stream);
-            }
-
-            // Cleanup temporary files
-            if ($this->prunekeeper->shouldCleanupTempFiles()) {
-                if ($tempFile !== null && file_exists($tempFile)) {
-                    @unlink($tempFile);
-                }
-                if ($compressedFile !== null && file_exists($compressedFile)) {
-                    @unlink($compressedFile);
-                }
-            }
-        }
-    }
-
-    /**
-     * Get the exporter instance based on the format option.
-     */
-    protected function getExporter(): Exporter
-    {
-        $format = $this->option('format') ?: $this->prunekeeper->getFormat();
-
-        if (! is_string($format)) {
-            throw new \InvalidArgumentException('Format must be a string ("csv" or "sql").');
-        }
-
-        return match (strtolower($format)) {
-            'sql' => app(SqlExporter::class),
-            'csv' => app(CsvExporter::class),
-            default => throw new \InvalidArgumentException("Invalid export format: {$format}. Use 'csv' or 'sql'."),
-        };
+        return $this->prunekeeper->archive($model, $query, $exporter, $shouldCompress);
     }
 }
