@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace HelgeSverre\Prunekeeper\Tests;
 
+use HelgeSverre\Prunekeeper\Prunekeeper;
 use HelgeSverre\Prunekeeper\PrunekeeperServiceProvider;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -16,6 +17,13 @@ abstract class TestCase extends Orchestra
         parent::setUp();
 
         $this->setUpDatabase();
+    }
+
+    protected function tearDown(): void
+    {
+        Prunekeeper::flushState();
+
+        parent::tearDown();
     }
 
     protected function getPackageProviders($app): array

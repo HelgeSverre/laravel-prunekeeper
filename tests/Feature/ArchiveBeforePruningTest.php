@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use HelgeSverre\Prunekeeper\ArchivePrunedRecords;
 use HelgeSverre\Prunekeeper\Contracts\Exporter;
+use HelgeSverre\Prunekeeper\Exporters\CsvExporter;
 use HelgeSverre\Prunekeeper\Listeners\ArchiveBeforePruning;
 use HelgeSverre\Prunekeeper\Prunekeeper;
 use HelgeSverre\Prunekeeper\Tests\Fixtures\TestMassPrunableModel;
@@ -120,8 +121,7 @@ it('skips archiving when no prunable records exist', function () {
 });
 
 it('uses custom filename generator', function () {
-    $manager = app(Prunekeeper::class);
-    $manager->generateFilenameUsing(function ($model, $format) {
+    Prunekeeper::generateFilenameUsing(function ($model, $format) {
         return "custom-path/custom-name.{$format}";
     });
 
@@ -143,14 +143,12 @@ it('fires before and after callbacks', function () {
     $afterCalled = false;
     $afterResult = null;
 
-    $manager = app(Prunekeeper::class);
-
-    $manager->beforeArchiving(function ($model) use (&$beforeCalled) {
+    Prunekeeper::beforeArchiving(function ($model) use (&$beforeCalled) {
         $beforeCalled = true;
         expect($model)->toBeInstanceOf(TestPrunableModel::class);
     });
 
-    $manager->afterArchiving(function ($model, $result) use (&$afterCalled, &$afterResult) {
+    Prunekeeper::afterArchiving(function ($model, $result) use (&$afterCalled, &$afterResult) {
         $afterCalled = true;
         $afterResult = $result;
     });
@@ -368,12 +366,12 @@ it('includes soft-deleted records when model uses SoftDeletes', function () {
 it('throws exception when fail_silently is false and archive fails', function () {
     config(['prunekeeper.fail_silently' => false]);
 
-    // Mock the exporter to throw an exception
+    // Mock the exporter to throw an exception - bind to CsvExporter which makeExporter() resolves
     $mockExporter = Mockery::mock(Exporter::class);
     $mockExporter->shouldReceive('export')->andThrow(new RuntimeException('Export failed'));
     $mockExporter->shouldReceive('extension')->andReturn('csv');
 
-    app()->instance(Exporter::class, $mockExporter);
+    app()->instance(CsvExporter::class, $mockExporter);
 
     TestPrunableModel::create([
         'name' => 'Old Record',
@@ -389,12 +387,12 @@ it('throws exception when fail_silently is false and archive fails', function ()
 it('catches exception and logs when fail_silently is true', function () {
     config(['prunekeeper.fail_silently' => true]);
 
-    // Mock the exporter to throw an exception
+    // Mock the exporter to throw an exception - bind to CsvExporter which makeExporter() resolves
     $mockExporter = Mockery::mock(Exporter::class);
     $mockExporter->shouldReceive('export')->andThrow(new RuntimeException('Export failed'));
     $mockExporter->shouldReceive('extension')->andReturn('csv');
 
-    app()->instance(Exporter::class, $mockExporter);
+    app()->instance(CsvExporter::class, $mockExporter);
 
     Log::shouldReceive('info')->once();
     Log::shouldReceive('error')
@@ -501,7 +499,7 @@ it('logs error when storage upload fails with fail_silently enabled', function (
 it('throws exception when export produces empty file', function () {
     config(['prunekeeper.fail_silently' => false]);
 
-    // Mock the exporter to create an empty file
+    // Mock the exporter to create an empty file - bind to CsvExporter which makeExporter() resolves
     $mockExporter = Mockery::mock(Exporter::class);
     $mockExporter->shouldReceive('export')->andReturnUsing(function () {
         $tempFile = tempnam(sys_get_temp_dir(), 'empty_');
@@ -512,7 +510,7 @@ it('throws exception when export produces empty file', function () {
     });
     $mockExporter->shouldReceive('extension')->andReturn('csv');
 
-    app()->instance(Exporter::class, $mockExporter);
+    app()->instance(CsvExporter::class, $mockExporter);
 
     TestPrunableModel::create([
         'name' => 'Old Record',
@@ -528,7 +526,7 @@ it('throws exception when export produces empty file', function () {
 it('includes expected record count in empty file error message', function () {
     config(['prunekeeper.fail_silently' => false]);
 
-    // Mock the exporter to create an empty file
+    // Mock the exporter to create an empty file - bind to CsvExporter which makeExporter() resolves
     $mockExporter = Mockery::mock(Exporter::class);
     $mockExporter->shouldReceive('export')->andReturnUsing(function () {
         $tempFile = tempnam(sys_get_temp_dir(), 'empty_');
@@ -538,7 +536,7 @@ it('includes expected record count in empty file error message', function () {
     });
     $mockExporter->shouldReceive('extension')->andReturn('csv');
 
-    app()->instance(Exporter::class, $mockExporter);
+    app()->instance(CsvExporter::class, $mockExporter);
 
     // Create 3 old records to verify count in error message
     for ($i = 0; $i < 3; $i++) {
@@ -562,12 +560,12 @@ it('includes expected record count in empty file error message', function () {
 it('throws exception when export file does not exist', function () {
     config(['prunekeeper.fail_silently' => false]);
 
-    // Mock the exporter to return a non-existent file path
+    // Mock the exporter to return a non-existent file path - bind to CsvExporter which makeExporter() resolves
     $mockExporter = Mockery::mock(Exporter::class);
     $mockExporter->shouldReceive('export')->andReturn('/nonexistent/path/to/file.csv');
     $mockExporter->shouldReceive('extension')->andReturn('csv');
 
-    app()->instance(Exporter::class, $mockExporter);
+    app()->instance(CsvExporter::class, $mockExporter);
 
     TestPrunableModel::create([
         'name' => 'Old Record',

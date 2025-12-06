@@ -6,14 +6,14 @@ use HelgeSverre\Prunekeeper\Exceptions\InvalidColumnException;
 use HelgeSverre\Prunekeeper\Prunekeeper;
 use HelgeSverre\Prunekeeper\Support\ArchiveResult;
 use HelgeSverre\Prunekeeper\Tests\Fixtures\TestPrunableModel;
+use HelgeSverre\Prunekeeper\Tests\Fixtures\TestSoftDeletableModel;
 
 it('generates default filename with timestamp and table name', function () {
-    $manager = new Prunekeeper;
     $model = new TestPrunableModel;
 
     config(['prunekeeper.compression.enabled' => false]);
 
-    $filename = $manager->generateFilename($model, 'csv');
+    $filename = Prunekeeper::generateFilename($model, 'csv');
 
     expect($filename)
         ->toContain('prunable-exports/')
@@ -22,33 +22,29 @@ it('generates default filename with timestamp and table name', function () {
 });
 
 it('uses custom filename generator when set', function () {
-    $manager = new Prunekeeper;
     $model = new TestPrunableModel;
 
-    $manager->generateFilenameUsing(function ($model, $format) {
+    Prunekeeper::generateFilenameUsing(function ($model, $format) {
         return "custom/{$model->getTable()}.{$format}";
     });
 
-    $filename = $manager->generateFilename($model, 'csv');
+    $filename = Prunekeeper::generateFilename($model, 'csv');
 
     expect($filename)->toBe('custom/test_prunable_models.csv');
 });
 
 it('adds compression extension when compression is enabled', function () {
-    $manager = new Prunekeeper;
     $model = new TestPrunableModel;
 
     config(['prunekeeper.compression.enabled' => true]);
     config(['prunekeeper.compression.driver' => 'zip']);
 
-    $filename = $manager->generateFilename($model, 'csv');
+    $filename = Prunekeeper::generateFilename($model, 'csv');
 
     expect($filename)->toEndWith('.csv.zip');
 });
 
 it('resolves columns from model method', function () {
-    $manager = new Prunekeeper;
-
     $model = new class extends TestPrunableModel
     {
         public function getArchivableColumns(): ?array
@@ -57,131 +53,112 @@ it('resolves columns from model method', function () {
         }
     };
 
-    $columns = $manager->resolveColumns($model);
+    $columns = Prunekeeper::resolveColumns($model);
 
     expect($columns)->toBe(['id', 'name', 'email']);
 });
 
 it('uses custom columns resolver when set', function () {
-    $manager = new Prunekeeper;
     $model = new TestPrunableModel;
 
-    $manager->resolveColumnsUsing(function ($model) {
+    Prunekeeper::resolveColumnsUsing(function ($model) {
         return ['custom_column'];
     });
 
-    $columns = $manager->resolveColumns($model);
+    $columns = Prunekeeper::resolveColumns($model);
 
     expect($columns)->toBe(['custom_column']);
 });
 
 it('returns null columns when no resolver is set', function () {
-    $manager = new Prunekeeper;
     $model = new TestPrunableModel;
 
-    $columns = $manager->resolveColumns($model);
+    $columns = Prunekeeper::resolveColumns($model);
 
     expect($columns)->toBeNull();
 });
 
 it('respects enabled config', function () {
-    $manager = new Prunekeeper;
-
     config(['prunekeeper.enabled' => true]);
-    expect($manager->isEnabled())->toBeTrue();
+    expect(Prunekeeper::isEnabled())->toBeTrue();
 
     config(['prunekeeper.enabled' => false]);
-    expect($manager->isEnabled())->toBeFalse();
+    expect(Prunekeeper::isEnabled())->toBeFalse();
 });
 
 it('respects fail_silently config', function () {
-    $manager = new Prunekeeper;
-
     config(['prunekeeper.fail_silently' => false]);
-    expect($manager->shouldFailSilently())->toBeFalse();
+    expect(Prunekeeper::shouldFailSilently())->toBeFalse();
 
     config(['prunekeeper.fail_silently' => true]);
-    expect($manager->shouldFailSilently())->toBeTrue();
+    expect(Prunekeeper::shouldFailSilently())->toBeTrue();
 });
 
 it('returns configured format', function () {
-    $manager = new Prunekeeper;
-
     config(['prunekeeper.format' => 'csv']);
-    expect($manager->getFormat())->toBe('csv');
+    expect(Prunekeeper::getFormat())->toBe('csv');
 
     config(['prunekeeper.format' => 'sql']);
-    expect($manager->getFormat())->toBe('sql');
+    expect(Prunekeeper::getFormat())->toBe('sql');
 });
 
 it('returns configured chunk size', function () {
-    $manager = new Prunekeeper;
-
     config(['prunekeeper.chunk_size' => 500]);
-    expect($manager->getChunkSize())->toBe(500);
+    expect(Prunekeeper::getChunkSize())->toBe(500);
 
     config(['prunekeeper.chunk_size' => 2000]);
-    expect($manager->getChunkSize())->toBe(2000);
+    expect(Prunekeeper::getChunkSize())->toBe(2000);
 });
 
 it('returns default chunk size when configured value is less than 1', function () {
-    $manager = new Prunekeeper;
-
     config(['prunekeeper.chunk_size' => 0]);
-    expect($manager->getChunkSize())->toBe(1000);
+    expect(Prunekeeper::getChunkSize())->toBe(1000);
 
     config(['prunekeeper.chunk_size' => -5]);
-    expect($manager->getChunkSize())->toBe(1000);
+    expect(Prunekeeper::getChunkSize())->toBe(1000);
 });
 
 it('caps chunk size at 10000 when configured value exceeds maximum', function () {
-    $manager = new Prunekeeper;
-
     config(['prunekeeper.chunk_size' => 15000]);
-    expect($manager->getChunkSize())->toBe(10000);
+    expect(Prunekeeper::getChunkSize())->toBe(10000);
 
     config(['prunekeeper.chunk_size' => 100000]);
-    expect($manager->getChunkSize())->toBe(10000);
+    expect(Prunekeeper::getChunkSize())->toBe(10000);
 });
 
 it('uses custom table name resolver when set', function () {
-    $manager = new Prunekeeper;
     $model = new TestPrunableModel;
 
-    $manager->resolveTableNameUsing(function ($model) {
+    Prunekeeper::resolveTableNameUsing(function ($model) {
         return 'custom_table_name';
     });
 
-    expect($manager->resolveTableName($model))->toBe('custom_table_name');
+    expect(Prunekeeper::resolveTableName($model))->toBe('custom_table_name');
 });
 
 it('returns default table name when no resolver is set', function () {
-    $manager = new Prunekeeper;
     $model = new TestPrunableModel;
 
-    expect($manager->resolveTableName($model))->toBe('test_prunable_models');
+    expect(Prunekeeper::resolveTableName($model))->toBe('test_prunable_models');
 });
 
 it('uses custom temp file generator when set', function () {
-    $manager = new Prunekeeper;
     $customPath = sys_get_temp_dir().'/custom_temp_file_'.uniqid();
 
-    $manager->createTempFileUsing(function ($prefix) use ($customPath) {
+    Prunekeeper::createTempFileUsing(function ($prefix) use ($customPath) {
         file_put_contents($customPath, '');
 
         return $customPath;
     });
 
-    $result = $manager->createTempFile('test_');
+    $result = Prunekeeper::createTempFile('test_');
     expect($result)->toBe($customPath);
 
     @unlink($customPath);
 });
 
 it('creates temp file in system temp directory by default', function () {
-    $manager = new Prunekeeper;
-
-    $tempFile = $manager->createTempFile('prunekeeper_test_');
+    $tempFile = Prunekeeper::createTempFile('prunekeeper_test_');
 
     // Use realpath to handle macOS symlinks (/var -> /private/var)
     $tempDir = realpath(sys_get_temp_dir());
@@ -194,69 +171,59 @@ it('creates temp file in system temp directory by default', function () {
 });
 
 it('respects shouldCompress config', function () {
-    $manager = new Prunekeeper;
-
     config(['prunekeeper.compression.enabled' => true]);
-    expect($manager->shouldCompress())->toBeTrue();
+    expect(Prunekeeper::shouldCompress())->toBeTrue();
 
     config(['prunekeeper.compression.enabled' => false]);
-    expect($manager->shouldCompress())->toBeFalse();
+    expect(Prunekeeper::shouldCompress())->toBeFalse();
 });
 
 it('respects shouldCleanupTempFiles config', function () {
-    $manager = new Prunekeeper;
-
     config(['prunekeeper.cleanup_temp_files' => true]);
-    expect($manager->shouldCleanupTempFiles())->toBeTrue();
+    expect(Prunekeeper::shouldCleanupTempFiles())->toBeTrue();
 
     config(['prunekeeper.cleanup_temp_files' => false]);
-    expect($manager->shouldCleanupTempFiles())->toBeFalse();
+    expect(Prunekeeper::shouldCleanupTempFiles())->toBeFalse();
 });
 
 it('returns configured file open mode', function () {
-    $manager = new Prunekeeper;
-
     config(['prunekeeper.file_open_mode' => 'w']);
-    expect($manager->getFileOpenMode())->toBe('w');
+    expect(Prunekeeper::getFileOpenMode())->toBe('w');
 
     config(['prunekeeper.file_open_mode' => 'a']);
-    expect($manager->getFileOpenMode())->toBe('a');
+    expect(Prunekeeper::getFileOpenMode())->toBe('a');
 });
 
 it('validates columns against model table', function () {
-    $manager = new Prunekeeper;
     $model = new TestPrunableModel;
 
     // Valid columns should not throw
-    $manager->validateColumns($model, ['id', 'name', 'email']);
+    Prunekeeper::validateColumns($model, ['id', 'name', 'email']);
 
     expect(true)->toBeTrue();
 });
 
 it('throws InvalidColumnException for invalid columns', function () {
-    $manager = new Prunekeeper;
     $model = new TestPrunableModel;
 
-    $manager->validateColumns($model, ['id', 'invalid_column']);
+    Prunekeeper::validateColumns($model, ['id', 'invalid_column']);
 })->throws(InvalidColumnException::class);
 
 it('fires before archive callback', function () {
-    $manager = new Prunekeeper;
     $model = new TestPrunableModel;
     $callbackFired = false;
 
-    $manager->beforeArchiving(function ($m) use (&$callbackFired) {
+    Prunekeeper::beforeArchiving(function ($m) use (&$callbackFired) {
         $callbackFired = true;
         expect($m)->toBeInstanceOf(TestPrunableModel::class);
     });
 
-    $manager->fireBeforeArchive($model);
+    Prunekeeper::fireBeforeArchive($model);
 
     expect($callbackFired)->toBeTrue();
 });
 
 it('fires after archive callback with result', function () {
-    $manager = new Prunekeeper;
     $model = new TestPrunableModel;
     $callbackFired = false;
     $receivedResult = null;
@@ -270,13 +237,74 @@ it('fires after archive callback with result', function () {
         compressed: false
     );
 
-    $manager->afterArchiving(function ($m, $r) use (&$callbackFired, &$receivedResult) {
+    Prunekeeper::afterArchiving(function ($m, $r) use (&$callbackFired, &$receivedResult) {
         $callbackFired = true;
         $receivedResult = $r;
     });
 
-    $manager->fireAfterArchive($model, $result);
+    Prunekeeper::fireAfterArchive($model, $result);
 
     expect($callbackFired)->toBeTrue();
     expect($receivedResult)->toBe($result);
+});
+
+it('flushes all registered callbacks and resolvers', function () {
+    Prunekeeper::generateFilenameUsing(fn ($model, $format) => 'custom/path.'.$format);
+    Prunekeeper::resolveColumnsUsing(fn ($model) => ['custom_column']);
+    Prunekeeper::beforeArchiving(fn () => null);
+    Prunekeeper::afterArchiving(fn () => null);
+    Prunekeeper::createTempFileUsing(fn ($prefix) => sys_get_temp_dir().'/custom_temp');
+    Prunekeeper::resolveTableNameUsing(fn ($model) => 'custom_table');
+
+    // Verify callbacks are set
+    $model = new TestPrunableModel;
+    expect(Prunekeeper::resolveColumns($model))->toBe(['custom_column']);
+    expect(Prunekeeper::resolveTableName($model))->toBe('custom_table');
+
+    Prunekeeper::flushState();
+
+    // After flush, these should use defaults
+    config(['prunekeeper.compression.enabled' => false]);
+    $filename = Prunekeeper::generateFilename($model, 'csv');
+    expect($filename)->toContain('test_prunable_models');
+
+    expect(Prunekeeper::resolveColumns($model))->toBeNull();
+    expect(Prunekeeper::resolveTableName($model))->toBe('test_prunable_models');
+});
+
+it('includes soft-deleted records in prunable query for SoftDeletes models', function () {
+    $old = TestSoftDeletableModel::create([
+        'name' => 'Regular Old Record',
+        'created_at' => now()->subMonths(2),
+    ]);
+    $softDeleted = TestSoftDeletableModel::create([
+        'name' => 'Soft Deleted Record',
+        'created_at' => now()->subMonths(2),
+    ]);
+    $softDeleted->delete();
+
+    $query = Prunekeeper::makePrunableQuery(new TestSoftDeletableModel);
+
+    $results = $query->get()->pluck('name')->all();
+    expect($results)->toContain('Regular Old Record', 'Soft Deleted Record');
+});
+
+it('does not include withTrashed for non-SoftDeletes models', function () {
+    TestPrunableModel::create([
+        'name' => 'Old Record',
+        'created_at' => now()->subMonths(2),
+    ]);
+
+    $query = Prunekeeper::makePrunableQuery(new TestPrunableModel);
+
+    // Should work without error (no withTrashed call on non-soft-delete model)
+    expect($query->count())->toBe(1);
+});
+
+it('respects configured storage disk', function () {
+    config(['prunekeeper.disk' => 'local']);
+
+    $disk = Prunekeeper::disk();
+
+    expect($disk)->toBeInstanceOf(\Illuminate\Contracts\Filesystem\Filesystem::class);
 });

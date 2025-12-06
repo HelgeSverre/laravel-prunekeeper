@@ -8,6 +8,7 @@ use HelgeSverre\Prunekeeper\Events\ArchiveCompleted;
 use HelgeSverre\Prunekeeper\Events\ArchiveFailed;
 use HelgeSverre\Prunekeeper\Events\ArchiveSkipped;
 use HelgeSverre\Prunekeeper\Events\ArchiveStarting;
+use HelgeSverre\Prunekeeper\Exporters\CsvExporter;
 use HelgeSverre\Prunekeeper\Listeners\ArchiveBeforePruning;
 use HelgeSverre\Prunekeeper\Prunekeeper;
 use HelgeSverre\Prunekeeper\Tests\Fixtures\TestPrunableModel;
@@ -67,7 +68,7 @@ describe('Listener Events', function () {
         $mockExporter = Mockery::mock(Exporter::class);
         $mockExporter->shouldReceive('export')->andThrow(new RuntimeException('Export failed'));
         $mockExporter->shouldReceive('extension')->andReturn('csv');
-        app()->instance(Exporter::class, $mockExporter);
+        app()->instance(CsvExporter::class, $mockExporter);
 
         TestPrunableModel::create([
             'name' => 'Old Record',
@@ -239,11 +240,10 @@ describe('Backward Compatibility', function () {
         $beforeCalled = false;
         $afterCalled = false;
 
-        $manager = app(Prunekeeper::class);
-        $manager->beforeArchiving(function ($model) use (&$beforeCalled) {
+        Prunekeeper::beforeArchiving(function ($model) use (&$beforeCalled) {
             $beforeCalled = true;
         });
-        $manager->afterArchiving(function ($model, $result) use (&$afterCalled) {
+        Prunekeeper::afterArchiving(function ($model, $result) use (&$afterCalled) {
             $afterCalled = true;
         });
 
@@ -265,8 +265,7 @@ describe('Backward Compatibility', function () {
 
         $callbackFired = false;
 
-        $manager = app(Prunekeeper::class);
-        $manager->beforeArchiving(function ($model) use (&$callbackFired) {
+        Prunekeeper::beforeArchiving(function ($model) use (&$callbackFired) {
             $callbackFired = true;
         });
 
