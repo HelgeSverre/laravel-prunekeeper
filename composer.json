@@ -1,72 +1,76 @@
 {
-    "name": "helgeesverre/laravel-prunekeeper",
-    "description": "Your database's safety net. Archive Laravel model records before pruning.",
-    "keywords": [
-        "laravel",
-        "eloquent",
-        "prunable",
-        "archive",
-        "backup",
-        "export",
-        "prunekeeper"
-    ],
-    "homepage": "https://github.com/helgeesverre/laravel-prunekeeper",
-    "license": "MIT",
-    "authors": [
-        {
-            "name": "Helge Sverre",
-            "email": "helge.sverre@gmail.com",
-            "role": "Developer"
-        }
-    ],
-    "require": {
-        "php": "^8.2",
-        "illuminate/contracts": "^11.0|^12.0",
-        "illuminate/database": "^11.0|^12.0",
-        "illuminate/events": "^11.0|^12.0",
-        "illuminate/filesystem": "^11.0|^12.0",
-        "illuminate/support": "^11.0|^12.0",
-        "league/csv": "^9.6",
-        "spatie/laravel-package-tools": "^1.16"
-    },
-    "require-dev": {
-        "larastan/larastan": "^2.9",
-        "laravel/pint": "^1.14",
-        "orchestra/testbench": "^9.0|^10.0",
-        "pestphp/pest": "^3.0",
-        "pestphp/pest-plugin-laravel": "^3.0"
-    },
-    "autoload": {
-        "psr-4": {
-            "HelgeSverre\\Prunekeeper\\": "src/"
-        }
-    },
-    "autoload-dev": {
-        "psr-4": {
-            "HelgeSverre\\Prunekeeper\\Tests\\": "tests/"
-        }
-    },
-    "scripts": {
-        "analyse": "vendor/bin/phpstan analyse src --level=6",
-        "format": "vendor/bin/pint",
-        "test": "vendor/bin/pest"
-    },
-    "config": {
-        "sort-packages": true,
-        "allow-plugins": {
-            "pestphp/pest-plugin": true
-        }
-    },
-    "extra": {
-        "laravel": {
-            "providers": [
-                "HelgeSverre\\Prunekeeper\\PrunekeeperServiceProvider"
-            ],
-            "aliases": {
-                "Prunekeeper": "HelgeSverre\\Prunekeeper\\Facades\\Prunekeeper"
-            }
-        }
-    },
-    "minimum-stability": "dev",
-    "prefer-stable": true
+  "name": "helgesverre/laravel-prunekeeper",
+  "description": "Archive prunable Eloquent records before deletion",
+  "keywords": [
+    "laravel",
+    "eloquent",
+    "prunable",
+    "massprunable",
+    "archive",
+    "backup",
+    "export",
+    "csv",
+    "data-retention",
+    "compliance"
+  ],
+  "homepage": "https://github.com/HelgeSverre/laravel-prunekeeper",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Helge Sverre",
+      "email": "helge.sverre@gmail.com",
+      "role": "Developer"
+    }
+  ],
+  "require": {
+    "php": "^8.2",
+    "illuminate/contracts": "^11.0|^12.0",
+    "illuminate/database": "^11.0|^12.0",
+    "illuminate/events": "^11.0|^12.0",
+    "illuminate/filesystem": "^11.0|^12.0",
+    "illuminate/support": "^11.0|^12.0",
+    "league/csv": "^9.6",
+    "spatie/laravel-package-tools": "^1.16"
+  },
+  "require-dev": {
+    "larastan/larastan": "^2.9",
+    "laravel/pint": "^1.14",
+    "orchestra/testbench": "^9.0|^10.0",
+    "pestphp/pest": "^3.0",
+    "pestphp/pest-plugin-laravel": "^3.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "HelgeSverre\\Prunekeeper\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "HelgeSverre\\Prunekeeper\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "analyse": "vendor/bin/phpstan analyse src --level=6",
+    "analyze": "@analyse",
+    "format": "vendor/bin/pint",
+    "test": "vendor/bin/pest"
+  },
+  "config": {
+    "sort-packages": true,
+    "allow-plugins": {
+      "pestphp/pest-plugin": true
+    }
+  },
+  "extra": {
+    "laravel": {
+      "providers": [
+        "HelgeSverre\\Prunekeeper\\PrunekeeperServiceProvider"
+      ],
+      "aliases": {
+        "Prunekeeper": "HelgeSverre\\Prunekeeper\\Facades\\Prunekeeper"
+      }
+    }
+  },
+  "minimum-stability": "dev",
+  "prefer-stable": true
 }
