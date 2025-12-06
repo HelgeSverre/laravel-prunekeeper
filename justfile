@@ -98,6 +98,11 @@ test-feature:
 test-integration: up wait
     vendor/bin/pest --testsuite=Integration
 
+# Run e2e Laravel installation test
+[group('test')]
+e2e:
+    ./test-laravel-install.sh
+
 # Run tests with coverage report (uses herd for Xdebug)
 [group('test')]
 coverage *args: up wait
