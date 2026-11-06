@@ -78,7 +78,7 @@ Optionally publish the configuration:
 php artisan vendor:publish --tag="prunekeeper-config"
 ```
 
-**Requirements:** PHP 8.2+ with Laravel 11/12, or PHP 8.3+ with Laravel 13.
+**Requirements:** PHP 8.2+ with Laravel 11/12, or PHP 8.3+ with Laravel 13, with the ZIP and Intl extensions.
 
 ## Basic Usage
 

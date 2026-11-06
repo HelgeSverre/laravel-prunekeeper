@@ -26,6 +26,7 @@ All notable changes to `laravel-prunekeeper` will be documented in this file.
 - Archive lifecycle failures and globally disabled skips dispatch the corresponding events consistently.
 - Export resources close before failure cleanup, including Windows temporary-file cleanup.
 - Docker test dependencies are resolved inside their PHP container instead of reusing host dependencies.
+- Declare the Intl extension required by archive size reporting so incompatible installations fail during dependency resolution.
 
 ### Upgrade notes
 
