@@ -5,6 +5,7 @@ declare(strict_types=1);
 use HelgeSverre\Prunekeeper\Exporters\SqlExporter;
 use HelgeSverre\Prunekeeper\Tests\Fixtures\TestPrunableModel;
 use HelgeSverre\Prunekeeper\Tests\TestCase;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -244,13 +245,8 @@ it('handles NULL values', function (string $driver, ?string $host, ?int $port, s
     @unlink($tempFile);
 })->with('databases');
 
-it('can re-import exported SQL (PostgreSQL/SQLite only)', function (string $driver, ?string $host, ?int $port, string $label) {
+it('can re-import exported SQL', function (string $driver, ?string $host, ?int $port, string $label) {
     skipIfUnavailable($driver, $host, $port, $label);
-
-    // Skip re-import test for MySQL/MariaDB - datetime format issues
-    if ($driver === 'mysql') {
-        test()->markTestSkipped('MySQL re-import requires datetime format conversion');
-    }
 
     configureDatabase($driver, $host, $port);
     setupTestTables();
@@ -282,4 +278,45 @@ it('can re-import exported SQL (PostgreSQL/SQLite only)', function (string $driv
     expect(DB::table('test_prunable_models')->count())->toBe(2);
 
     @unlink($tempFile);
+})->with('databases');
+
+it('can re-import PostgreSQL generated identity values', function (string $driver, ?string $host, ?int $port, string $label) {
+    skipIfUnavailable($driver, $host, $port, $label);
+
+    if ($driver !== 'pgsql') {
+        test()->markTestSkipped('Generated identity values are specific to PostgreSQL.');
+    }
+
+    configureDatabase($driver, $host, $port);
+    DB::statement('DROP TABLE IF EXISTS test_identity_export_models');
+    DB::statement('CREATE TABLE test_identity_export_models (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name VARCHAR(255) NOT NULL)');
+    DB::table('test_identity_export_models')->insert(['name' => 'generated identity record']);
+
+    $model = new class extends Model
+    {
+        protected $table = 'test_identity_export_models';
+
+        public $timestamps = false;
+
+        protected $guarded = [];
+    };
+
+    $tempFile = (new SqlExporter)->export($model->newQuery());
+    $statements = array_filter(
+        explode("\n", file_get_contents($tempFile)),
+        fn (string $line): bool => str_starts_with(trim($line), 'INSERT INTO')
+    );
+
+    DB::table('test_identity_export_models')->delete();
+
+    foreach ($statements as $statement) {
+        DB::statement($statement);
+    }
+
+    expect(DB::table('test_identity_export_models')->first())
+        ->id->toBe(1)
+        ->name->toBe('generated identity record');
+
+    @unlink($tempFile);
+    DB::statement('DROP TABLE test_identity_export_models');
 })->with('databases');

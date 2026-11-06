@@ -7,26 +7,33 @@ namespace HelgeSverre\Prunekeeper\Exporters;
 use HelgeSverre\Prunekeeper\Contracts\Exporter;
 use HelgeSverre\Prunekeeper\Prunekeeper;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Schema;
+use InvalidArgumentException;
 use League\Csv\Writer;
+use RuntimeException;
 
 class CsvExporter implements Exporter
 {
     /**
      * Export query results to a CSV file.
      *
-     * @param  Builder<\Illuminate\Database\Eloquent\Model>  $query
+     * @param  Builder<Model>  $query
      * @param  array<string>|null  $columns
      * @return string Path to the temporary CSV file
      */
     public function export(Builder $query, ?array $columns = null): string
     {
-        if ($columns !== null) {
-            Prunekeeper::validateColumns($query->getModel(), $columns);
+        if ($columns === []) {
+            throw new InvalidArgumentException('At least one column must be specified when limiting an archive export.');
         }
+
+        $archiveColumns = $this->resolveArchiveColumns($query, $columns);
 
         $tempFile = Prunekeeper::createTempFile('prunekeeper_csv_');
         $mode = Prunekeeper::getFileOpenMode() ?: 'w';
+        $writer = null;
 
         try {
             $writer = Writer::createFromPath($tempFile, $mode);
@@ -34,11 +41,9 @@ class CsvExporter implements Exporter
             $chunkSize = Prunekeeper::getChunkSize();
             $headerWritten = false;
 
-            $query->chunk($chunkSize, function ($records) use ($writer, $columns, &$headerWritten) {
+            $query->chunk($chunkSize, function ($records) use ($writer, $archiveColumns, &$headerWritten) {
                 foreach ($records as $record) {
-                    $data = $columns !== null
-                        ? collect($record->toArray())->only($columns)->all()
-                        : $record->toArray();
+                    $data = $this->archiveData($record, $archiveColumns);
 
                     if (! $headerWritten) {
                         $writer->insertOne(array_keys($data));
@@ -51,6 +56,7 @@ class CsvExporter implements Exporter
 
             return $tempFile;
         } catch (\Throwable $e) {
+            unset($writer);
             @unlink($tempFile);
             throw $e;
         }
@@ -72,21 +78,22 @@ class CsvExporter implements Exporter
         $result = [];
 
         foreach ($data as $key => $value) {
-            if (is_array($value) || is_object($value)) {
-                $json = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (is_resource($value)) {
+                throw new RuntimeException("CSV export does not support resource values in column {$key}");
+            }
 
-                if ($json === false) {
-                    Log::warning('Prunekeeper: JSON encoding failed for column', [
-                        'column' => $key,
-                        'error' => json_last_error_msg(),
-                    ]);
-
-                    $result[$key] = null;
-
-                    continue;
+            if (is_float($value)) {
+                if (! is_finite($value)) {
+                    throw new RuntimeException("CSV export does not support non-finite float values in column {$key}");
                 }
 
-                $result[$key] = $json;
+                $result[$key] = sprintf('%.17H', $value);
+
+                continue;
+            }
+
+            if (is_array($value) || is_object($value)) {
+                $result[$key] = json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
                 continue;
             }
@@ -101,5 +108,39 @@ class CsvExporter implements Exporter
         }
 
         return $result;
+    }
+
+    /**
+     * @param  Builder<Model>  $query
+     * @param  array<string>|null  $columns
+     * @return array<string>
+     */
+    protected function resolveArchiveColumns(Builder $query, ?array $columns): array
+    {
+        $model = $query->getModel();
+
+        if ($columns !== null) {
+            Prunekeeper::validateColumns($model, $columns);
+
+            return $columns;
+        }
+
+        return Schema::connection($model->getConnectionName())->getColumnListing($model->getTable());
+    }
+
+    /**
+     * @param  array<string>  $columns
+     * @return array<string, mixed>
+     */
+    protected function archiveData(Model $record, array $columns): array
+    {
+        $attributes = $record->getRawOriginal();
+        $missing = array_diff($columns, array_keys($attributes));
+
+        if ($missing !== []) {
+            throw new RuntimeException('Archive query did not load required column(s): '.implode(', ', $missing));
+        }
+
+        return Arr::only($attributes, $columns);
     }
 }
