@@ -11,9 +11,12 @@ use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
+use Throwable;
 
 class ValidateCommand extends Command
 {
+    protected bool $hasInvalidModelSelection = false;
+
     protected $signature = 'prunekeeper:validate
         {--model=* : The model(s) to validate}';
 
@@ -24,6 +27,10 @@ class ValidateCommand extends Command
         $models = $this->getModels();
 
         if ($models->isEmpty()) {
+            if ($this->hasInvalidModelSelection) {
+                return self::FAILURE;
+            }
+
             $this->components->warn('No archivable models found.');
 
             return self::SUCCESS;
@@ -46,7 +53,7 @@ class ValidateCommand extends Command
 
         $this->displayResults($results);
 
-        if ($hasErrors) {
+        if ($hasErrors || $this->hasInvalidModelSelection) {
             $this->newLine();
             $this->components->error('Validation failed. Please fix the column configuration errors above.');
 
@@ -66,13 +73,20 @@ class ValidateCommand extends Command
      */
     protected function getModels(): Collection
     {
+        $this->hasInvalidModelSelection = false;
         $models = $this->option('model');
 
         if (! empty($models)) {
             return ArchivableModels::filter(
                 $models,
-                fn ($m, $msg) => $this->components->error($msg),
-                fn ($m, $msg) => $this->components->warn($msg)
+                function ($model, $message): void {
+                    $this->hasInvalidModelSelection = true;
+                    $this->components->error($message);
+                },
+                function ($model, $message): void {
+                    $this->hasInvalidModelSelection = true;
+                    $this->components->warn($message);
+                }
             );
         }
 
@@ -91,7 +105,37 @@ class ValidateCommand extends Command
         $model = new $modelClass;
         $table = $model->getTable();
 
-        $columns = Prunekeeper::resolveColumns($model);
+        if (! method_exists($model, 'prunable')) {
+            return $this->errorResult($modelClass, $table, 'Missing prunable() method');
+        }
+
+        try {
+            Prunekeeper::makePrunableQuery($model);
+
+            $columns = Prunekeeper::resolveColumns($model);
+
+            if ($columns === []) {
+                return $this->errorResult(
+                    $modelClass,
+                    $table,
+                    'At least one column must be specified when limiting an archive export'
+                );
+            }
+
+            $connection = $model->getConnectionName();
+
+            if (! Schema::connection($connection)->hasTable($table)) {
+                return $this->errorResult($modelClass, $table, 'Table does not exist');
+            }
+
+            $actualColumns = Schema::connection($connection)->getColumnListing($table);
+        } catch (Throwable $e) {
+            if ($e instanceof \LogicException) {
+                return $this->errorResult($modelClass, $table, 'Could not build prunable query: '.$e->getMessage());
+            }
+
+            return $this->errorResult($modelClass, $table, 'Could not inspect table: '.$e->getMessage());
+        }
 
         if ($columns === null) {
             return [
@@ -103,8 +147,6 @@ class ValidateCommand extends Command
             ];
         }
 
-        $connection = $model->getConnectionName();
-        $actualColumns = Schema::connection($connection)->getColumnListing($table);
         $invalidColumns = array_diff($columns, $actualColumns);
 
         if (! empty($invalidColumns)) {
@@ -123,6 +165,20 @@ class ValidateCommand extends Command
             'status' => 'ok',
             'columns' => implode(', ', $columns),
             'message' => 'All columns valid',
+        ];
+    }
+
+    /**
+     * @return array{model: string, table: string, status: string, columns: string, message: string}
+     */
+    private function errorResult(string $modelClass, string $table, string $message): array
+    {
+        return [
+            'model' => $modelClass,
+            'table' => $table,
+            'status' => 'error',
+            'columns' => '',
+            'message' => $message,
         ];
     }
 

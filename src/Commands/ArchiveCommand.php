@@ -17,6 +17,8 @@ use Throwable;
 
 class ArchiveCommand extends Command
 {
+    protected bool $hasInvalidModelSelection = false;
+
     /**
      * The name and signature of the console command.
      */
@@ -40,6 +42,10 @@ class ArchiveCommand extends Command
         $models = $this->getModels();
 
         if ($models->isEmpty()) {
+            if ($this->hasInvalidModelSelection) {
+                return self::FAILURE;
+            }
+
             $this->components->warn('No archivable models found.');
 
             return self::SUCCESS;
@@ -61,7 +67,7 @@ class ArchiveCommand extends Command
             $this->components->info('No records to archive.');
         }
 
-        return self::SUCCESS;
+        return $this->hasInvalidModelSelection ? self::FAILURE : self::SUCCESS;
     }
 
     /**
@@ -71,13 +77,20 @@ class ArchiveCommand extends Command
      */
     protected function getModels(): Collection
     {
+        $this->hasInvalidModelSelection = false;
         $models = $this->option('model');
 
         if (! empty($models)) {
             return ArchivableModels::filter(
                 $models,
-                fn ($m, $msg) => $this->components->error($msg),
-                fn ($m, $msg) => $this->components->warn($msg)
+                function ($model, $message): void {
+                    $this->hasInvalidModelSelection = true;
+                    $this->components->error($message);
+                },
+                function ($model, $message): void {
+                    $this->hasInvalidModelSelection = true;
+                    $this->components->warn($message);
+                }
             );
         }
 
@@ -101,6 +114,13 @@ class ArchiveCommand extends Command
             return null;
         }
 
+        if (! Prunekeeper::isEnabled()) {
+            $this->components->warn("{$modelClass} has archiving disabled.");
+            Prunekeeper::fireArchiveSkipped($model, ArchiveSkipped::REASON_DISABLED);
+
+            return null;
+        }
+
         if (! $model->shouldArchiveBeforePruning()) {
             $this->components->warn("{$modelClass} has archiving disabled.");
             Prunekeeper::fireArchiveSkipped($model, ArchiveSkipped::REASON_DISABLED);
@@ -108,8 +128,14 @@ class ArchiveCommand extends Command
             return null;
         }
 
-        $query = Prunekeeper::makePrunableQuery($model);
-        $count = $query->count();
+        try {
+            $query = Prunekeeper::makePrunableQuery($model);
+            $count = $query->count();
+        } catch (Throwable $e) {
+            Prunekeeper::fireArchiveFailed($model, $e);
+
+            throw $e;
+        }
 
         if ($count === 0) {
             $this->components->info("{$modelClass}: No prunable records found.");
@@ -127,10 +153,9 @@ class ArchiveCommand extends Command
 
         $result = null;
 
-        Prunekeeper::fireBeforeArchive($model, $count);
-
-        $this->components->task("Archiving {$count} records from {$modelClass}", function () use ($model, $query, &$result) {
+        $this->components->task("Archiving {$count} records from {$modelClass}", function () use ($model, $query, $count, &$result) {
             try {
+                Prunekeeper::fireBeforeArchive($model, $count);
                 $result = $this->performArchive($model, clone $query);
                 Prunekeeper::fireAfterArchive($model, $result);
             } catch (Throwable $e) {
@@ -168,8 +193,16 @@ class ArchiveCommand extends Command
         $format = $this->option('format');
         $exporter = Prunekeeper::makeExporter(is_string($format) ? $format : null);
         $shouldCompress = ! $this->option('no-compress') && Prunekeeper::shouldCompress();
+        $compressionDriver = $shouldCompress ? $this->getCompressionDriver() : null;
 
-        return Prunekeeper::archive($model, $query, $exporter, $shouldCompress);
+        return Prunekeeper::archive(
+            $model,
+            $query,
+            $exporter,
+            $shouldCompress,
+            onCleanupError: fn (string $file) => $this->components->warn("Failed to delete temporary archive file: {$file}"),
+            compressionDriver: $compressionDriver
+        );
     }
 
     /**

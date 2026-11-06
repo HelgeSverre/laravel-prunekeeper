@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static CompressionDriver driver(?string $driver = null)
  * @method static string getDefaultDriver()
  * @method static CompressionManager extend(string $driver, Closure $callback)
- * @method static array getAvailableDrivers()
+ * @method static array<string, array{name: string, available: bool, requirements: array<string>}> getAvailableDrivers()
  *
  * @see CompressionManager
  */

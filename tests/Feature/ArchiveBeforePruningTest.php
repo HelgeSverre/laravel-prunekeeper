@@ -104,6 +104,43 @@ it('skips models without the ArchivePrunedRecords trait', function () {
     expect($files)->toBeEmpty();
 });
 
+it('skips marker models that Laravel will not prune', function () {
+    $model = new class extends Model
+    {
+        use ArchivePrunedRecords;
+
+        protected $table = 'test_prunable_models';
+
+        public function prunable()
+        {
+            return self::query()->where('created_at', '<=', now()->subMonth());
+        }
+    };
+
+    TestPrunableModel::create([
+        'name' => 'Old Record',
+        'created_at' => now()->subMonths(2),
+    ]);
+
+    app(ArchiveBeforePruning::class)->handle(new ModelPruningStarting([get_class($model)]));
+
+    expect(Storage::disk('local')->files('prunable-exports'))->toBeEmpty();
+});
+
+it('archives each model only once when the pruning event contains duplicates', function () {
+    TestPrunableModel::create([
+        'name' => 'Old Record',
+        'created_at' => now()->subMonths(2),
+    ]);
+
+    app(ArchiveBeforePruning::class)->handle(new ModelPruningStarting([
+        TestPrunableModel::class,
+        TestPrunableModel::class,
+    ]));
+
+    expect(Storage::disk('local')->files('prunable-exports'))->toHaveCount(1);
+});
+
 it('skips archiving when no prunable records exist', function () {
     // Create only recent records
     TestPrunableModel::create([
@@ -451,8 +488,10 @@ it('throws exception when storage upload fails', function () {
     // Mock the storage disk to return false on put
     Storage::shouldReceive('disk')
         ->andReturn(Mockery::mock(Filesystem::class, function ($mock) {
+            $mock->shouldReceive('exists')->andReturn(false);
             $mock->shouldReceive('put')
                 ->andReturn(false);
+            $mock->shouldReceive('delete')->andReturn(true);
         }));
 
     TestPrunableModel::create([
@@ -472,8 +511,10 @@ it('logs error when storage upload fails with fail_silently enabled', function (
     // Mock the storage disk to return false on put
     Storage::shouldReceive('disk')
         ->andReturn(Mockery::mock(Filesystem::class, function ($mock) {
+            $mock->shouldReceive('exists')->andReturn(false);
             $mock->shouldReceive('put')
                 ->andReturn(false);
+            $mock->shouldReceive('delete')->andReturn(true);
         }));
 
     Log::shouldReceive('info')->once();

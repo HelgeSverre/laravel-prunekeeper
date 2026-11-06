@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace HelgeSverre\Prunekeeper;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
+use ReflectionClass;
 use Symfony\Component\Finder\Finder;
 
 class ArchivableModels
@@ -27,6 +29,7 @@ class ArchivableModels
             ->flatMap(fn (string $pattern) => self::discoverInPath($pattern))
             ->unique()
             ->filter(fn (string $class) => class_exists($class))
+            ->filter(fn (string $class) => self::isInstantiableModel($class))
             ->filter(fn (string $class) => in_array(ArchivePrunedRecords::class, class_uses_recursive($class)))
             ->values();
     }
@@ -50,20 +53,11 @@ class ArchivableModels
                 continue;
             }
 
-            // Calculate namespace from relative path: app/Foo/Bar → App\Foo\Bar
-            $relativePath = str_replace($basePath.'/', '', $dir);
-            $namespace = self::pathToNamespace($relativePath);
-
             try {
                 $finder = (new Finder)->files()->name('*.php')->in($dir);
 
                 foreach ($finder as $file) {
-                    $className = $namespace.'\\'.str_replace(
-                        ['/', '.php'],
-                        ['\\', ''],
-                        $file->getRelativePathname()
-                    );
-                    $models[] = $className;
+                    $models = [...$models, ...self::classesInFile($file->getRealPath())];
                 }
             } catch (\Exception) {
                 // Directory not readable or other Finder error - skip silently
@@ -141,15 +135,111 @@ class ArchivableModels
     }
 
     /**
-     * Convert a relative path to a PSR-4 style namespace.
-     *
-     * Example: 'app/Domain/Users/Models' → 'App\Domain\Users\Models'
+     * @return array<int, class-string>
      */
-    private static function pathToNamespace(string $relativePath): string
+    private static function classesInFile(string $path): array
     {
-        return collect(explode('/', $relativePath))
-            ->map(fn (string $segment) => ucfirst($segment))
-            ->implode('\\');
+        $contents = file_get_contents($path);
+
+        if ($contents === false) {
+            return [];
+        }
+
+        $namespace = '';
+        $classes = [];
+        $tokens = token_get_all($contents);
+
+        foreach ($tokens as $index => $token) {
+            if (! is_array($token)) {
+                continue;
+            }
+
+            if ($token[0] === T_NAMESPACE) {
+                $namespace = self::readNamespace($tokens, $index);
+
+                continue;
+            }
+
+            if ($token[0] !== T_CLASS || self::isAnonymousClass($tokens, $index)) {
+                continue;
+            }
+
+            $class = self::readClassName($tokens, $index);
+
+            if ($class !== null) {
+                $classes[] = $namespace === '' ? $class : $namespace.'\\'.$class;
+            }
+        }
+
+        return $classes;
+    }
+
+    /**
+     * @param  array<int, array{int, string, int}|string>  $tokens
+     */
+    private static function readNamespace(array $tokens, int $index): string
+    {
+        $namespace = '';
+
+        for ($i = $index + 1; isset($tokens[$i]); $i++) {
+            $token = $tokens[$i];
+
+            if ($token === ';' || $token === '{') {
+                break;
+            }
+
+            if (is_array($token) && in_array($token[0], [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED, T_NS_SEPARATOR], true)) {
+                $namespace .= $token[1];
+            }
+        }
+
+        return trim($namespace, '\\');
+    }
+
+    /**
+     * @param  array<int, array{int, string, int}|string>  $tokens
+     */
+    private static function readClassName(array $tokens, int $index): ?string
+    {
+        for ($i = $index + 1; isset($tokens[$i]); $i++) {
+            $token = $tokens[$i];
+
+            if (is_array($token) && $token[0] === T_STRING) {
+                return $token[1];
+            }
+
+            if (! is_array($token) && $token !== ' ') {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<int, array{int, string, int}|string>  $tokens
+     */
+    private static function isAnonymousClass(array $tokens, int $index): bool
+    {
+        for ($i = $index - 1; $i >= 0; $i--) {
+            $token = $tokens[$i];
+
+            if (is_array($token) && in_array($token[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+
+            return is_array($token) && $token[0] === T_NEW;
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  class-string  $class
+     */
+    private static function isInstantiableModel(string $class): bool
+    {
+        return is_subclass_of($class, Model::class) && (new ReflectionClass($class))->isInstantiable();
     }
 
     /**
@@ -174,6 +264,22 @@ class ArchivableModels
                 return false;
             }
 
+            if (! is_subclass_of($model, Model::class)) {
+                if ($onWarning) {
+                    $onWarning($model, "Model class must extend Eloquent Model: {$model}");
+                }
+
+                return false;
+            }
+
+            if (! (new ReflectionClass($model))->isInstantiable()) {
+                if ($onWarning) {
+                    $onWarning($model, "Model class must be instantiable: {$model}");
+                }
+
+                return false;
+            }
+
             if (! in_array(ArchivePrunedRecords::class, class_uses_recursive($model))) {
                 if ($onWarning) {
                     $onWarning($model, "Model does not use ArchivePrunedRecords trait: {$model}");
@@ -183,6 +289,6 @@ class ArchivableModels
             }
 
             return true;
-        })->values();
+        })->unique()->values();
     }
 }

@@ -2,9 +2,26 @@
 
 declare(strict_types=1);
 
+use Domain\Records\CustomPrunableModel;
 use HelgeSverre\Prunekeeper\ArchivableModels;
+use HelgeSverre\Prunekeeper\ArchivePrunedRecords;
 use HelgeSverre\Prunekeeper\Tests\Fixtures\TestPrunableModel;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Prunable;
 use Illuminate\Support\Collection;
+
+abstract class AbstractArchivableModel extends Model
+{
+    use ArchivePrunedRecords;
+    use Prunable;
+
+    protected $table = 'test_prunable_models';
+
+    public function prunable()
+    {
+        return static::query();
+    }
+}
 
 it('returns empty collection when models_path directories do not exist', function () {
     config(['prunekeeper.models_path' => ['nonexistent/path', 'another/missing/dir']]);
@@ -55,11 +72,11 @@ it('calls error callback for non-existent class', function () {
     expect($errorMessage)->toContain('Model class not found');
 });
 
-it('calls warning callback for class without ArchivePrunedRecords trait', function () {
+it('calls warning callback for a class that is not an Eloquent model', function () {
     $warningCalled = false;
     $warningMessage = '';
 
-    // stdClass exists but doesn't have the trait
+    // stdClass exists but cannot be archived.
     ArchivableModels::filter(
         ['stdClass'],
         null,
@@ -70,7 +87,7 @@ it('calls warning callback for class without ArchivePrunedRecords trait', functi
     );
 
     expect($warningCalled)->toBeTrue();
-    expect($warningMessage)->toContain('does not use ArchivePrunedRecords trait');
+    expect($warningMessage)->toContain('must extend Eloquent Model');
 });
 
 it('filters out invalid classes from the result', function () {
@@ -85,17 +102,28 @@ it('filters out invalid classes from the result', function () {
 });
 
 it('deduplicates models when same model found in multiple paths', function () {
-    // The get() method should deduplicate using unique()
-    // This is tested implicitly through the implementation
-    // We can verify the unique() call works by checking the collection methods
     $models = ArchivableModels::filter([
         TestPrunableModel::class,
-        TestPrunableModel::class, // duplicate
-        TestPrunableModel::class, // another duplicate
+        TestPrunableModel::class,
+        TestPrunableModel::class,
     ]);
 
-    // Filter doesn't deduplicate, but get() does - testing filter behavior
-    expect($models)->toHaveCount(3);
+    expect($models)->toHaveCount(1);
+});
+
+it('filters out abstract models', function () {
+    $warning = '';
+
+    $models = ArchivableModels::filter(
+        [AbstractArchivableModel::class],
+        null,
+        function (string $model, string $message) use (&$warning): void {
+            $warning = $message;
+        }
+    );
+
+    expect($models)->toBeEmpty();
+    expect($warning)->toContain('must be instantiable');
 });
 
 it('handles glob pattern with no matches gracefully', function () {
@@ -114,35 +142,46 @@ it('handles recursive glob pattern with no matches gracefully', function () {
     expect($models)->toBeEmpty();
 });
 
-it('converts path to namespace correctly', function () {
-    // Test via reflection since pathToNamespace is private
-    $reflection = new ReflectionClass(ArchivableModels::class);
-    $method = $reflection->getMethod('pathToNamespace');
-    $method->setAccessible(true);
+it('discovers models from their declared namespace', function () {
+    $directory = app_path('CustomModels');
+    $file = $directory.'/CustomPrunableModel.php';
 
-    $namespace = $method->invoke(null, 'app/Domain/Users/Models');
+    if (! is_dir($directory)) {
+        mkdir($directory, 0777, true);
+    }
 
-    expect($namespace)->toBe('App\\Domain\\Users\\Models');
-});
+    file_put_contents($file, <<<'PHP'
+<?php
 
-it('converts single segment path to namespace', function () {
-    $reflection = new ReflectionClass(ArchivableModels::class);
-    $method = $reflection->getMethod('pathToNamespace');
-    $method->setAccessible(true);
+namespace Domain\Records;
 
-    $namespace = $method->invoke(null, 'app');
+use HelgeSverre\Prunekeeper\ArchivePrunedRecords;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Prunable;
 
-    expect($namespace)->toBe('App');
-});
+class CustomPrunableModel extends Model
+{
+    use ArchivePrunedRecords;
+    use Prunable;
 
-it('handles empty path in namespace conversion', function () {
-    $reflection = new ReflectionClass(ArchivableModels::class);
-    $method = $reflection->getMethod('pathToNamespace');
-    $method->setAccessible(true);
+    protected $table = 'test_prunable_models';
 
-    $namespace = $method->invoke(null, '');
+    public function prunable()
+    {
+        return static::query();
+    }
+}
+PHP);
 
-    expect($namespace)->toBe('');
+    try {
+        require_once $file;
+        config(['prunekeeper.models_path' => ['app/CustomModels']]);
+
+        expect(ArchivableModels::get())->toContain(CustomPrunableModel::class);
+    } finally {
+        unlink($file);
+        rmdir($directory);
+    }
 });
 
 it('expands simple path correctly', function () {

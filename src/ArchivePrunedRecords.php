@@ -49,9 +49,7 @@ trait ArchivePrunedRecords
      * @param  string  $format  The export format (e.g., "csv" or "sql")
      * @return string|null The filename, or null to use the default
      *
-     * Note: If compression is enabled, Prunekeeper appends ".zip" to the
-     * generated filename. When providing a custom filename, the returned
-     * value is used as-is.
+     * If compression is enabled, its extension is appended unless already present.
      */
     public function getArchiveFilename(string $format): ?string
     {

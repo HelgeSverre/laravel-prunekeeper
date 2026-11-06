@@ -142,6 +142,87 @@ describe('Listener Events', function () {
         });
     });
 
+    it('dispatches ArchiveSkipped when archiving is globally disabled', function () {
+        Event::fake([ArchiveSkipped::class]);
+        config(['prunekeeper.enabled' => false]);
+
+        $listener = app(ArchiveBeforePruning::class);
+        $listener->handle(new ModelPruningStarting([TestPrunableModel::class]));
+
+        Event::assertDispatched(ArchiveSkipped::class, function ($event) {
+            return $event->model instanceof TestPrunableModel
+                && $event->reason === ArchiveSkipped::REASON_DISABLED;
+        });
+    });
+
+    it('dispatches ArchiveFailed when a before callback fails', function () {
+        Event::fake([ArchiveFailed::class]);
+
+        Prunekeeper::beforeArchiving(function (): void {
+            throw new RuntimeException('Before archive failed');
+        });
+
+        TestPrunableModel::create([
+            'name' => 'Old Record',
+            'created_at' => now()->subMonths(2),
+        ]);
+
+        $listener = app(ArchiveBeforePruning::class);
+
+        expect(fn () => $listener->handle(new ModelPruningStarting([TestPrunableModel::class])))
+            ->toThrow(RuntimeException::class, 'Before archive failed');
+
+        Event::assertDispatched(ArchiveFailed::class, function ($event) {
+            return $event->model instanceof TestPrunableModel
+                && $event->exception->getMessage() === 'Before archive failed';
+        });
+    });
+
+    it('dispatches ArchiveFailed when a prunable query uses a different model', function () {
+        Event::fake([ArchiveFailed::class]);
+
+        $modelClass = new class extends Model
+        {
+            use ArchivePrunedRecords;
+            use Prunable;
+
+            protected $table = 'test_prunable_models';
+
+            public function prunable()
+            {
+                return TestPrunableModel::query();
+            }
+        };
+
+        $listener = app(ArchiveBeforePruning::class);
+
+        expect(fn () => $listener->handle(new ModelPruningStarting([get_class($modelClass)])))
+            ->toThrow(InvalidArgumentException::class);
+
+        Event::assertDispatched(ArchiveFailed::class);
+    });
+
+    it('continues after a before callback failure when configured to fail silently', function () {
+        Event::fake([ArchiveFailed::class]);
+        config(['prunekeeper.fail_silently' => true]);
+
+        Prunekeeper::beforeArchiving(function (): void {
+            throw new RuntimeException('Before archive failed');
+        });
+
+        TestPrunableModel::create([
+            'name' => 'Old Record',
+            'created_at' => now()->subMonths(2),
+        ]);
+
+        $listener = app(ArchiveBeforePruning::class);
+        $listener->handle(new ModelPruningStarting([TestPrunableModel::class]));
+
+        Event::assertDispatched(ArchiveFailed::class, function ($event) {
+            return $event->exception->getMessage() === 'Before archive failed';
+        });
+    });
+
     it('dispatches ArchiveSkipped event when model has no prunable method', function () {
         Event::fake([ArchiveSkipped::class]);
 

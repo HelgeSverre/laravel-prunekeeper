@@ -77,13 +77,37 @@ it('fails validation for models with invalid columns', function () {
         ->assertExitCode(1);
 });
 
-it('shows warning for non-existent model class', function () {
-    $this->artisan('prunekeeper:validate', ['--model' => ['App\\Models\\NonExistentModel']])
-        ->expectsOutputToContain('Model class not found')
-        ->assertExitCode(0);
+it('fails validation when no columns are configured', function () {
+    $modelClass = new class extends Model
+    {
+        use ArchivePrunedRecords;
+        use Prunable;
+
+        protected $table = 'test_prunable_models';
+
+        public function getArchivableColumns(): ?array
+        {
+            return [];
+        }
+
+        public function prunable()
+        {
+            return self::query();
+        }
+    };
+
+    $this->artisan('prunekeeper:validate', ['--model' => [get_class($modelClass)]])
+        ->expectsOutputToContain('At least one column must be specified')
+        ->assertExitCode(1);
 });
 
-it('shows warning for model without ArchivePrunedRecords trait', function () {
+it('fails for a non-existent model class', function () {
+    $this->artisan('prunekeeper:validate', ['--model' => ['App\\Models\\NonExistentModel']])
+        ->expectsOutputToContain('Model class not found')
+        ->assertExitCode(1);
+});
+
+it('fails for a model without ArchivePrunedRecords trait', function () {
     // Create a model without the trait
     $modelClass = new class extends Model
     {
@@ -99,7 +123,90 @@ it('shows warning for model without ArchivePrunedRecords trait', function () {
 
     $this->artisan('prunekeeper:validate', ['--model' => [get_class($modelClass)]])
         ->expectsOutputToContain('does not use ArchivePrunedRecords trait')
-        ->assertExitCode(0);
+        ->assertExitCode(1);
+});
+
+it('fails validation when the model table does not exist', function () {
+    $modelClass = new class extends Model
+    {
+        use ArchivePrunedRecords;
+        use Prunable;
+
+        protected $table = 'missing_prunekeeper_table';
+
+        public function prunable()
+        {
+            return self::query();
+        }
+    };
+
+    $this->artisan('prunekeeper:validate', ['--model' => [get_class($modelClass)]])
+        ->expectsOutputToContain('Table does not exist')
+        ->assertExitCode(1);
+});
+
+it('fails validation when the model has no prunable method', function () {
+    $modelClass = new class extends Model
+    {
+        use ArchivePrunedRecords;
+
+        protected $table = 'test_prunable_models';
+    };
+
+    $this->artisan('prunekeeper:validate', ['--model' => [get_class($modelClass)]])
+        ->expectsOutputToContain('Missing prunable() method')
+        ->assertExitCode(1);
+});
+
+it('fails validation when a pruning trait does not override prunable', function () {
+    $modelClass = new class extends Model
+    {
+        use ArchivePrunedRecords;
+        use Prunable;
+
+        protected $table = 'test_prunable_models';
+    };
+
+    $this->artisan('prunekeeper:validate', ['--model' => [get_class($modelClass)]])
+        ->expectsOutputToContain('Could not build prunable query')
+        ->assertExitCode(1);
+});
+
+it('fails validation when a model does not use a Laravel pruning trait', function () {
+    $modelClass = new class extends Model
+    {
+        use ArchivePrunedRecords;
+
+        protected $table = 'test_prunable_models';
+
+        public function prunable()
+        {
+            return self::query();
+        }
+    };
+
+    $this->artisan('prunekeeper:validate', ['--model' => [get_class($modelClass)]])
+        ->expectsOutputToContain('must use Laravel\'s Prunable or MassPrunable trait')
+        ->assertExitCode(1);
+});
+
+it('fails validation when prunable returns a builder for a different model', function () {
+    $modelClass = new class extends Model
+    {
+        use ArchivePrunedRecords;
+        use Prunable;
+
+        protected $table = 'test_prunable_models';
+
+        public function prunable()
+        {
+            return TestPrunableModel::query();
+        }
+    };
+
+    $this->artisan('prunekeeper:validate', ['--model' => [get_class($modelClass)]])
+        ->expectsOutputToContain('must return an Eloquent Builder for the same model')
+        ->assertExitCode(1);
 });
 
 it('shows no archivable models warning when none found', function () {

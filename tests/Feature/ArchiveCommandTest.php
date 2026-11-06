@@ -3,10 +3,13 @@
 declare(strict_types=1);
 
 use HelgeSverre\Prunekeeper\ArchivePrunedRecords;
+use HelgeSverre\Prunekeeper\Events\ArchiveFailed;
+use HelgeSverre\Prunekeeper\Events\ArchiveSkipped;
 use HelgeSverre\Prunekeeper\Tests\Fixtures\TestPrunableModel;
 use HelgeSverre\Prunekeeper\Tests\Fixtures\TestSoftDeletableModel;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Prunable;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
@@ -115,6 +118,45 @@ it('compresses files when compression is enabled and no-compress is not set', fu
     expect($files[0])->toEndWith('.zip');
 });
 
+it('uses the compression driver passed to the command', function () {
+    config([
+        'prunekeeper.compression.enabled' => true,
+        'prunekeeper.compression.driver' => 'zip',
+    ]);
+
+    TestPrunableModel::create([
+        'name' => 'Old Record',
+        'created_at' => now()->subMonths(2),
+    ]);
+
+    $this->artisan('prunekeeper:archive', [
+        '--model' => [TestPrunableModel::class],
+        '--compression' => 'gzip',
+    ])
+        ->expectsOutputToContain('Compression: gzip')
+        ->assertExitCode(0);
+
+    $files = Storage::disk('local')->files('prunable-exports');
+    expect($files)->toHaveCount(1);
+    expect($files[0])->toEndWith('.csv.gz');
+    expect($files[0])->not->toEndWith('.zip.gz');
+    expect(gzdecode(Storage::disk('local')->get($files[0])))->toContain('Old Record');
+});
+
+it('rejects an unsupported compression driver passed to the command', function () {
+    config(['prunekeeper.compression.enabled' => true]);
+
+    TestPrunableModel::create([
+        'name' => 'Old Record',
+        'created_at' => now()->subMonths(2),
+    ]);
+
+    $this->artisan('prunekeeper:archive', [
+        '--model' => [TestPrunableModel::class],
+        '--compression' => 'unsupported',
+    ]);
+})->throws(InvalidArgumentException::class, 'Compression driver [unsupported] is not supported.');
+
 it('shows no records message when no prunable records exist', function () {
     // Create only recent records
     TestPrunableModel::create([
@@ -169,10 +211,55 @@ it('shows warning for model with archiving disabled', function () {
         ->assertExitCode(0);
 });
 
-it('shows error for non-existent model class', function () {
+it('skips manual archiving when it is globally disabled', function () {
+    Event::fake([ArchiveSkipped::class]);
+    config(['prunekeeper.enabled' => false]);
+
+    TestPrunableModel::create([
+        'name' => 'Old Record',
+        'created_at' => now()->subMonths(2),
+    ]);
+
+    $this->artisan('prunekeeper:archive', ['--model' => [TestPrunableModel::class]])
+        ->expectsOutputToContain('has archiving disabled')
+        ->assertExitCode(0);
+
+    expect(Storage::disk('local')->files('prunable-exports'))->toBeEmpty();
+
+    Event::assertDispatched(ArchiveSkipped::class, function (ArchiveSkipped $event): bool {
+        return $event->model instanceof TestPrunableModel
+            && $event->reason === ArchiveSkipped::REASON_DISABLED;
+    });
+});
+
+it('rejects manual archiving without a Laravel pruning trait and dispatches failure', function () {
+    Event::fake([ArchiveFailed::class]);
+
+    $modelClass = new class extends Model
+    {
+        use ArchivePrunedRecords;
+
+        protected $table = 'test_prunable_models';
+
+        public function prunable()
+        {
+            return self::query();
+        }
+    };
+
+    expect(fn () => $this->artisan('prunekeeper:archive', ['--model' => [get_class($modelClass)]]))
+        ->toThrow(InvalidArgumentException::class);
+
+    Event::assertDispatched(ArchiveFailed::class, function (ArchiveFailed $event) use ($modelClass): bool {
+        return $modelClass::class === $event->model::class
+            && $event->exception instanceof InvalidArgumentException;
+    });
+});
+
+it('fails for a non-existent model class', function () {
     $this->artisan('prunekeeper:archive', ['--model' => ['App\\Models\\NonExistentModel']])
         ->expectsOutputToContain('Model class not found')
-        ->assertExitCode(0);
+        ->assertExitCode(1);
 });
 
 it('shows no archivable models warning when none found', function () {
@@ -202,6 +289,19 @@ it('archives multiple models', function () {
 
     $files = Storage::disk('local')->files('prunable-exports');
     expect($files)->toHaveCount(2);
+});
+
+it('archives an explicitly selected model only once', function () {
+    TestPrunableModel::create([
+        'name' => 'Old Prunable',
+        'created_at' => now()->subMonths(2),
+    ]);
+
+    $this->artisan('prunekeeper:archive', [
+        '--model' => [TestPrunableModel::class, TestPrunableModel::class],
+    ])->assertExitCode(0);
+
+    expect(Storage::disk('local')->files('prunable-exports'))->toHaveCount(1);
 });
 
 it('includes soft-deleted records in archive', function () {
