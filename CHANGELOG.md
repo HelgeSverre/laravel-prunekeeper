@@ -2,6 +2,38 @@
 
 All notable changes to `laravel-prunekeeper` will be documented in this file.
 
+## [2.1.0] - 2026-11-06
+
+### Added
+
+- Laravel 13 support, with Testbench 11 and PHP 8.3+ compatibility.
+- Fresh-install Docker smoke tests for Laravel 11, 12, and 13, including real pruning, failed-storage protection, SQL restoration, and compression.
+- CI coverage for supported Laravel/PHP combinations through PHP 8.5.
+
+### Fixed
+
+- CSV and SQL archives now preserve stored database attributes, including hidden columns, without applying Eloquent casts, accessors, or appended attributes.
+- Partial query projections, empty column selections, and unsupported binary/resource SQL values fail explicitly instead of silently producing incomplete archives.
+- SQL exports preserve database timestamp formats, support PostgreSQL booleans, and detect failed or partial writes.
+- SQL dumps omit generated columns by default and reject explicitly selected generated columns so dumps remain restorable.
+- CSV and SQL preserve floating-point precision independently of application PHP precision settings.
+- Compression driver overrides now select the requested algorithm and filename extension.
+- Compression drivers reject non-file sources and preserve existing output files; gzip/bzip2 check writes and finalization failures.
+- Storage uploads use unique staging objects, refuse existing archive paths, clean up their own failed uploads, and reject empty compression output.
+- Model selections are deduplicated and invalid explicit selections return failing command statuses.
+- Model discovery uses declared namespaces, including custom application namespaces, and excludes non-instantiable models.
+- Validation checks pruning implementations, table existence, and empty column selections.
+- Archive lifecycle failures and globally disabled skips dispatch the corresponding events consistently.
+- Export resources close before failure cleanup, including Windows temporary-file cleanup.
+- Docker test dependencies are resolved inside their PHP container instead of reusing host dependencies.
+
+### Upgrade notes
+
+- Archives include hidden database fields. Use explicit archive columns when sensitive fields must be excluded.
+- Custom filenames must be unique: archive paths already present when checked are rejected. Concurrent runs using custom names still require external coordination; the filesystem API does not provide an atomic reservation.
+- SQL values containing NUL bytes or stream resources are rejected; partial projections must load every configured archive column.
+- Archiving and Laravel pruning remain separate queries. Coordinate concurrent writers and use a stable cutoff when exact archive coverage is required.
+
 ## [2.0.0] - 2025-06-06
 
 ### Changed

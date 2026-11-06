@@ -39,9 +39,38 @@ When you run `php artisan model:prune`, Prunekeeper automatically:
 
 ## Installation
 
+Supports Laravel 11 and 12 on PHP 8.2+, and Laravel 13 on PHP 8.3+.
+Laravel 11 is past its [upstream security support period](https://laravel.com/docs/13.x/releases#support-policy);
+package compatibility does not extend framework security support.
+
 ```bash
 composer require helgesverre/laravel-prunekeeper
 ```
+
+Archives contain stored database attributes, including hidden fields. Eloquent accessors,
+casts, appended attributes, and relationships are not applied. Encrypt and restrict access
+to archive storage as appropriate for the data being retained.
+
+Partial query projections must include every configured archive column (all table columns
+by default); otherwise exporting throws before pruning. SQL exports reject NUL-containing
+strings and stream resources because those values cannot be safely represented as portable
+SQL string literals. Use CSV for supported binary strings or exclude those columns explicitly.
+Both formats reject stream resources. SQL archives omit generated columns so the database
+can recompute them during restoration; explicitly selecting a generated column for SQL fails.
+
+Archiving and pruning run separate queries. Concurrent inserts or updates, or a changing
+time-based cutoff, can change the matching records between export and deletion. Use a
+stable cutoff and coordinate writers when exact archive coverage is required. Calling
+`pruneAll()` directly bypasses the `model:prune` event and therefore automatic archiving.
+
+Use unique filenames in custom filename callbacks: an existing storage path causes archiving
+to fail. The existence check is not an atomic reservation; coordinate concurrent archive runs
+when using custom names. Uploads use temporary `.uploading-*` paths; only the final path
+returned in `ArchiveResult` represents a completed archive. Callback and event-listener
+exceptions stop pruning by default,
+including exceptions after an archive has been uploaded. Keep notification listeners reliable
+and account for duplicate archives when retrying. `fail_silently` allows pruning after an
+archive failure and therefore risks losing unarchived records.
 
 Optionally publish the configuration:
 
@@ -49,7 +78,7 @@ Optionally publish the configuration:
 php artisan vendor:publish --tag="prunekeeper-config"
 ```
 
-**Requirements:** PHP 8.2+ and Laravel 11 or 12.
+**Requirements:** PHP 8.2+ with Laravel 11/12, or PHP 8.3+ with Laravel 13.
 
 ## Basic Usage
 
@@ -416,6 +445,20 @@ When archiving data that may contain sensitive information:
 ```bash
 composer test
 ```
+
+`just dtest` runs the complete suite inside Docker with all seven database services.
+It resolves PHP dependencies inside the container and fails if a required database is unavailable.
+
+Run fresh Laravel 11, 12, and 13 installation and pruning smoke tests in Docker:
+
+```bash
+bash scripts/smoke-docker.sh
+```
+
+This also runs the unit/feature suite and static analysis with matching Testbench
+dependencies for each Laravel version. Set `PRUNEKEEPER_SMOKE_LARAVEL_VERSIONS=13`
+to test a single version. Only the disposable Laravel 11 test projects permit
+dependencies blocked by Composer's advisory policy.
 
 ## Changelog
 
