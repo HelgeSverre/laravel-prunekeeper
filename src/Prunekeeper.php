@@ -17,7 +17,9 @@ use HelgeSverre\Prunekeeper\Exporters\SqlExporter;
 use HelgeSverre\Prunekeeper\Support\ArchiveResult;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Prunable;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -27,7 +29,7 @@ use Throwable;
 
 class Prunekeeper
 {
-    public const VERSION = '2.0.0';
+    public const VERSION = '2.1.0';
 
     /** @var (callable(Model, string): string)|null */
     protected static $filenameGenerator = null;
@@ -368,8 +370,18 @@ class Prunekeeper
      */
     public static function makePrunableQuery(Model $model): Builder
     {
-        /** @var Builder<Model> $query */
+        $traits = class_uses_recursive($model::class);
+        $modelClass = $model::class;
+
+        if (! isset($traits[Prunable::class]) && ! isset($traits[MassPrunable::class])) {
+            throw new InvalidArgumentException("Model {$modelClass} must use Laravel's Prunable or MassPrunable trait.");
+        }
+
         $query = $model->prunable(); // @phpstan-ignore method.notFound (Model uses Prunable or MassPrunable trait)
+
+        if (! $query instanceof Builder || $query->getModel()::class !== $model::class) {
+            throw new InvalidArgumentException("The prunable() method on {$modelClass} must return an Eloquent Builder for the same model.");
+        }
 
         if (in_array(SoftDeletes::class, class_uses_recursive($model::class))) {
             $query->withTrashed(); // @phpstan-ignore method.notFound (Model uses SoftDeletes trait)
@@ -384,16 +396,19 @@ class Prunekeeper
      * @param  Model&Archivable  $model
      * @param  Builder<Model>  $query
      * @param  callable(string): void|null  $onCleanupError  Callback when temp file cleanup fails
+     * @param  string|null  $compressionDriver  Compression driver to use for this archive only
      */
     public static function archive(
         Model $model,
         Builder $query,
         Exporter $exporter,
         bool $shouldCompress = true,
-        ?callable $onCleanupError = null
+        ?callable $onCleanupError = null,
+        ?string $compressionDriver = null
     ): ArchiveResult {
         $columns = static::resolveColumns($model);
         $recordCount = $query->count();
+        $compression = $shouldCompress ? static::compression()->driver($compressionDriver) : null;
 
         $tempFile = null;
         $compressedFile = null;
@@ -403,7 +418,7 @@ class Prunekeeper
             $tempFile = $exporter->export(clone $query, $columns);
             $format = $exporter->extension();
 
-            if (! file_exists($tempFile) || filesize($tempFile) === 0) {
+            if (! is_file($tempFile) || filesize($tempFile) === 0) {
                 $modelClass = $model::class;
                 throw new RuntimeException(
                     "Export produced empty file for {$modelClass}. Expected {$recordCount} records."
@@ -411,9 +426,9 @@ class Prunekeeper
             }
 
             $filename = $model->getArchiveFilename($format)
-                ?? static::generateFilename($model, $format, $shouldCompress);
+                ?? static::generateFilename($model, $format, false);
 
-            $compressionExtension = $shouldCompress ? static::getCompressionExtension() : null;
+            $compressionExtension = $compression?->extension();
 
             if ($shouldCompress && $compressionExtension && ! str_ends_with($filename, '.'.$compressionExtension)) {
                 $filename .= '.'.$compressionExtension;
@@ -422,13 +437,17 @@ class Prunekeeper
             $fileToUpload = $tempFile;
 
             if ($shouldCompress) {
-                $compressedFile = static::compression()->driver()->compress($tempFile, 'export.'.$format);
+                $compressedFile = $compression->compress($tempFile, 'export.'.$format);
                 $fileToUpload = $compressedFile;
+
+                if (! is_file($fileToUpload) || filesize($fileToUpload) === 0) {
+                    throw new RuntimeException('Compression produced a missing or empty archive file.');
+                }
             }
 
             $fileSize = filesize($fileToUpload) ?: 0;
 
-            $stream = fopen($fileToUpload, 'r');
+            $stream = fopen($fileToUpload, 'rb');
 
             if ($stream === false) {
                 $error = error_get_last();
@@ -438,10 +457,29 @@ class Prunekeeper
                 );
             }
 
-            $uploaded = static::disk()->put($filename, $stream);
+            $disk = static::disk();
 
-            if ($uploaded === false) {
-                throw new RuntimeException("Failed to upload archive to storage: {$filename}");
+            self::ensureArchivePathAvailable($disk, $filename);
+
+            $stagingFilename = $filename.'.uploading-'.bin2hex(random_bytes(16));
+
+            try {
+                if ($disk->put($stagingFilename, $stream) === false) {
+                    throw new RuntimeException("Failed to upload archive to storage: {$filename}");
+                }
+
+                self::ensureArchivePathAvailable($disk, $filename);
+
+                if ($disk->move($stagingFilename, $filename) === false) {
+                    throw new RuntimeException("Failed to publish archive to storage: {$filename}");
+                }
+            } catch (Throwable $e) {
+                try {
+                    $disk->delete($stagingFilename);
+                } catch (Throwable) {
+                }
+
+                throw $e;
             }
 
             return new ArchiveResult(
@@ -461,6 +499,13 @@ class Prunekeeper
                 self::cleanupTempFile($tempFile, $onCleanupError);
                 self::cleanupTempFile($compressedFile, $onCleanupError);
             }
+        }
+    }
+
+    private static function ensureArchivePathAvailable(Filesystem $disk, string $filename): void
+    {
+        if ($disk->exists($filename)) {
+            throw new RuntimeException("Archive already exists in storage: {$filename}");
         }
     }
 

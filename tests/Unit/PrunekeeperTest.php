@@ -7,6 +7,7 @@ use HelgeSverre\Prunekeeper\Prunekeeper;
 use HelgeSverre\Prunekeeper\Support\ArchiveResult;
 use HelgeSverre\Prunekeeper\Tests\Fixtures\TestPrunableModel;
 use HelgeSverre\Prunekeeper\Tests\Fixtures\TestSoftDeletableModel;
+use Illuminate\Contracts\Filesystem\Filesystem;
 
 it('generates default filename with timestamp and table name', function () {
     $model = new TestPrunableModel;
@@ -306,5 +307,5 @@ it('respects configured storage disk', function () {
 
     $disk = Prunekeeper::disk();
 
-    expect($disk)->toBeInstanceOf(\Illuminate\Contracts\Filesystem\Filesystem::class);
+    expect($disk)->toBeInstanceOf(Filesystem::class);
 });

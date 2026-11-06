@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace HelgeSverre\Prunekeeper\Contracts;
 
+use HelgeSverre\Prunekeeper\Exceptions\CompressionException;
+
 /**
  * Contract for compression drivers.
  *
@@ -19,7 +21,7 @@ interface CompressionDriver
      * @param  string|null  $innerFilename  Filename to use inside the archive (for formats that support it)
      * @return string Path to the compressed file
      *
-     * @throws \HelgeSverre\Prunekeeper\Exceptions\CompressionException
+     * @throws CompressionException
      */
     public function compress(string $filePath, ?string $innerFilename = null): string;
 

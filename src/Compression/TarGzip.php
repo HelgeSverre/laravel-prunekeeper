@@ -14,12 +14,28 @@ class TarGzip implements CompressionDriver
 {
     public function compress(string $filePath, ?string $innerFilename = null): string
     {
-        if (! file_exists($filePath)) {
-            throw CompressionException::fileNotFound($this->name(), $filePath);
+        if (! is_file($filePath)) {
+            throw CompressionException::compressionFailed(
+                $this->name(),
+                $filePath,
+                'Source path does not exist or is not a regular file'
+            );
+        }
+
+        if (! static::isAvailable()) {
+            throw CompressionException::driverNotAvailable($this->name(), static::requirements());
         }
 
         $tarPath = $filePath.'.tar';
         $tarGzPath = $filePath.'.tar.gz';
+
+        if (file_exists($tarPath) || is_link($tarPath) || file_exists($tarGzPath) || is_link($tarGzPath)) {
+            throw CompressionException::compressionFailed(
+                $this->name(),
+                $filePath,
+                'Destination archive already exists'
+            );
+        }
 
         try {
             // Create the tar archive
@@ -47,6 +63,8 @@ class TarGzip implements CompressionDriver
 
             return $tarGzPath;
         } catch (CompressionException $e) {
+            @unlink($tarPath);
+            @unlink($tarGzPath);
             throw $e;
         } catch (Throwable $e) {
             // Clean up partial files on error

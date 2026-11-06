@@ -55,6 +55,23 @@ it('fails when source file does not exist', function () {
     $compressor->compress($nonExistentFile, 'export.csv');
 })->throws(CompressionException::class);
 
+it('reports an unavailable driver when used directly', function () {
+    $compressor = new class extends Zip
+    {
+        public static function isAvailable(): bool
+        {
+            return false;
+        }
+    };
+    $tempFile = tempnam(sys_get_temp_dir(), 'test_');
+    file_put_contents($tempFile, 'test content');
+
+    expect(fn () => $compressor->compress($tempFile, 'export.csv'))
+        ->toThrow(CompressionException::class, "Compression driver 'zip' is not available");
+
+    @unlink($tempFile);
+});
+
 it('fails when file is deleted before compression', function () {
     $compressor = new Zip;
 
@@ -90,26 +107,29 @@ it('uses correct inner filename', function () {
     @unlink($zipPath);
 });
 
-it('overwrites existing zip file', function () {
+it('preserves an existing zip archive', function () {
     $compressor = new Zip;
 
     $tempFile = tempnam(sys_get_temp_dir(), 'test_');
-    file_put_contents($tempFile, 'first content');
+    file_put_contents($tempFile, 'new content');
+    $zipPath = $tempFile.'.zip';
+    file_put_contents($zipPath, 'existing archive');
 
-    // First compression
-    $zipPath = $compressor->compress($tempFile, 'export.csv');
-    $firstSize = filesize($zipPath);
+    expect(fn () => $compressor->compress($tempFile, 'export.csv'))
+        ->toThrow(CompressionException::class, 'Destination archive already exists');
 
-    // Update content and compress again
-    file_put_contents($tempFile, str_repeat('much longer second content ', 100));
-    $zipPath2 = $compressor->compress($tempFile, 'export.csv');
-
-    expect($zipPath)->toBe($zipPath2);
-    expect(filesize($zipPath))->not->toBe($firstSize);
+    expect(file_get_contents($zipPath))->toBe('existing archive');
 
     // Cleanup
     @unlink($tempFile);
     @unlink($zipPath);
+});
+
+it('rejects a directory source', function () {
+    $compressor = new Zip;
+
+    expect(fn () => $compressor->compress(sys_get_temp_dir(), 'export.csv'))
+        ->toThrow(CompressionException::class, 'not a regular file');
 });
 
 it('returns correct extension', function () {

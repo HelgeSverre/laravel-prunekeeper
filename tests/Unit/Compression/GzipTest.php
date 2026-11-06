@@ -55,6 +55,46 @@ it('fails when source file does not exist', function () {
     $compressor->compress($nonExistentFile);
 })->throws(CompressionException::class);
 
+it('reports an unavailable driver when used directly', function () {
+    $compressor = new class extends Gzip
+    {
+        public static function isAvailable(): bool
+        {
+            return false;
+        }
+    };
+    $tempFile = tempnam(sys_get_temp_dir(), 'test_');
+    file_put_contents($tempFile, 'test content');
+
+    expect(fn () => $compressor->compress($tempFile))
+        ->toThrow(CompressionException::class, "Compression driver 'gzip' is not available");
+
+    @unlink($tempFile);
+});
+
+it('preserves an existing gzip archive', function () {
+    $compressor = new Gzip;
+    $tempFile = tempnam(sys_get_temp_dir(), 'test_');
+    file_put_contents($tempFile, 'new content');
+    $gzPath = $tempFile.'.gz';
+    file_put_contents($gzPath, 'existing archive');
+
+    expect(fn () => $compressor->compress($tempFile))
+        ->toThrow(CompressionException::class, 'Destination archive already exists');
+
+    expect(file_get_contents($gzPath))->toBe('existing archive');
+
+    @unlink($tempFile);
+    @unlink($gzPath);
+});
+
+it('rejects a directory source', function () {
+    $compressor = new Gzip;
+
+    expect(fn () => $compressor->compress(sys_get_temp_dir()))
+        ->toThrow(CompressionException::class, 'not a regular file');
+});
+
 it('returns correct extension', function () {
     $compressor = new Gzip;
 

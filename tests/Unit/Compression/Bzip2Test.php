@@ -61,6 +61,46 @@ it('fails when source file does not exist', function () {
     $compressor->compress($nonExistentFile);
 })->throws(CompressionException::class);
 
+it('reports an unavailable driver when used directly', function () {
+    $compressor = new class extends Bzip2
+    {
+        public static function isAvailable(): bool
+        {
+            return false;
+        }
+    };
+    $tempFile = tempnam(sys_get_temp_dir(), 'test_');
+    file_put_contents($tempFile, 'test content');
+
+    expect(fn () => $compressor->compress($tempFile))
+        ->toThrow(CompressionException::class, "Compression driver 'bzip2' is not available");
+
+    @unlink($tempFile);
+});
+
+it('preserves an existing bzip2 archive', function () {
+    $compressor = new Bzip2;
+    $tempFile = tempnam(sys_get_temp_dir(), 'test_');
+    file_put_contents($tempFile, 'new content');
+    $bz2Path = $tempFile.'.bz2';
+    file_put_contents($bz2Path, 'existing archive');
+
+    expect(fn () => $compressor->compress($tempFile))
+        ->toThrow(CompressionException::class, 'Destination archive already exists');
+
+    expect(file_get_contents($bz2Path))->toBe('existing archive');
+
+    @unlink($tempFile);
+    @unlink($bz2Path);
+});
+
+it('rejects a directory source', function () {
+    $compressor = new Bzip2;
+
+    expect(fn () => $compressor->compress(sys_get_temp_dir()))
+        ->toThrow(CompressionException::class, 'not a regular file');
+});
+
 it('returns correct extension', function () {
     $compressor = new Bzip2;
 

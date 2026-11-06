@@ -24,11 +24,27 @@ class Gzip implements CompressionDriver
     {
         // Note: $innerFilename is ignored for gzip (single-file compression, no filename preservation)
 
-        if (! file_exists($filePath)) {
-            throw CompressionException::fileNotFound($this->name(), $filePath);
+        if (! is_file($filePath)) {
+            throw CompressionException::compressionFailed(
+                $this->name(),
+                $filePath,
+                'Source path does not exist or is not a regular file'
+            );
+        }
+
+        if (! static::isAvailable()) {
+            throw CompressionException::driverNotAvailable($this->name(), static::requirements());
         }
 
         $gzPath = $filePath.'.gz';
+
+        if (file_exists($gzPath) || is_link($gzPath)) {
+            throw CompressionException::compressionFailed(
+                $this->name(),
+                $filePath,
+                'Destination archive already exists'
+            );
+        }
 
         $source = fopen($filePath, 'rb');
         if ($source === false) {
@@ -50,6 +66,8 @@ class Gzip implements CompressionDriver
             );
         }
 
+        $destinationOpen = true;
+
         try {
             while (! feof($source)) {
                 $chunk = fread($source, $this->bufferSize);
@@ -61,21 +79,42 @@ class Gzip implements CompressionDriver
                     );
                 }
 
-                $written = gzwrite($destination, $chunk);
-                if ($written === false) {
-                    throw CompressionException::compressionFailed(
-                        $this->name(),
-                        $filePath,
-                        'Failed to write to gzip file'
-                    );
+                while ($chunk !== '') {
+                    $written = gzwrite($destination, $chunk);
+                    if ($written === false || $written === 0) {
+                        throw CompressionException::compressionFailed(
+                            $this->name(),
+                            $filePath,
+                            'Failed to write to gzip file'
+                        );
+                    }
+
+                    $chunk = substr($chunk, $written);
                 }
+            }
+
+            $destinationOpen = false;
+            if (! gzclose($destination)) {
+                throw CompressionException::compressionFailed(
+                    $this->name(),
+                    $filePath,
+                    'Failed to finalize gzip file'
+                );
             }
 
             return $gzPath;
         } catch (CompressionException $e) {
+            if ($destinationOpen) {
+                $destinationOpen = false;
+                gzclose($destination);
+            }
             @unlink($gzPath);
             throw $e;
         } catch (\Throwable $e) {
+            if ($destinationOpen) {
+                $destinationOpen = false;
+                gzclose($destination);
+            }
             @unlink($gzPath);
             throw CompressionException::compressionFailed(
                 $this->name(),
@@ -85,7 +124,6 @@ class Gzip implements CompressionDriver
             );
         } finally {
             fclose($source);
-            gzclose($destination);
         }
     }
 

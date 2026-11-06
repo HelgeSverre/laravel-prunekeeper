@@ -59,6 +59,30 @@ it('fails when source file does not exist', function () {
     $compressor->compress($nonExistentFile);
 })->throws(CompressionException::class);
 
+it('reports an unavailable driver when used directly', function () {
+    $compressor = new class extends TarGzip
+    {
+        public static function isAvailable(): bool
+        {
+            return false;
+        }
+    };
+    $tempFile = tempnam(sys_get_temp_dir(), 'test_');
+    file_put_contents($tempFile, 'test content');
+
+    expect(fn () => $compressor->compress($tempFile))
+        ->toThrow(CompressionException::class, "Compression driver 'targz' is not available");
+
+    @unlink($tempFile);
+});
+
+it('rejects a directory source', function () {
+    $compressor = new TarGzip;
+
+    expect(fn () => $compressor->compress(sys_get_temp_dir()))
+        ->toThrow(CompressionException::class, 'not a regular file');
+});
+
 it('returns correct extension', function () {
     $compressor = new TarGzip;
 
@@ -138,6 +162,24 @@ it('cleans up intermediate tar file on success', function () {
     expect(file_exists($tarGzPath))->toBeTrue();
 
     // Cleanup
+    @unlink($tempFile);
+    @unlink($tarGzPath);
+});
+
+it('preserves a pre-existing target archive when compression cannot start', function () {
+    $compressor = new TarGzip;
+
+    $tempFile = tempnam(sys_get_temp_dir(), 'test_');
+    file_put_contents($tempFile, 'new content');
+    $tarGzPath = $tempFile.'.tar.gz';
+    file_put_contents($tarGzPath, 'existing archive');
+
+    expect(fn () => $compressor->compress($tempFile))
+        ->toThrow(CompressionException::class);
+
+    expect(file_get_contents($tarGzPath))->toBe('existing archive');
+    expect(file_exists($tempFile.'.tar'))->toBeFalse();
+
     @unlink($tempFile);
     @unlink($tarGzPath);
 });

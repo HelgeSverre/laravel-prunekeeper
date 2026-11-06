@@ -24,11 +24,27 @@ class Bzip2 implements CompressionDriver
     {
         // Note: $innerFilename is ignored for bzip2 (single-file compression, no filename preservation)
 
-        if (! file_exists($filePath)) {
-            throw CompressionException::fileNotFound($this->name(), $filePath);
+        if (! is_file($filePath)) {
+            throw CompressionException::compressionFailed(
+                $this->name(),
+                $filePath,
+                'Source path does not exist or is not a regular file'
+            );
+        }
+
+        if (! static::isAvailable()) {
+            throw CompressionException::driverNotAvailable($this->name(), static::requirements());
         }
 
         $bz2Path = $filePath.'.bz2';
+
+        if (file_exists($bz2Path) || is_link($bz2Path)) {
+            throw CompressionException::compressionFailed(
+                $this->name(),
+                $filePath,
+                'Destination archive already exists'
+            );
+        }
 
         $source = fopen($filePath, 'rb');
         if ($source === false) {
@@ -50,6 +66,8 @@ class Bzip2 implements CompressionDriver
             );
         }
 
+        $destinationOpen = true;
+
         try {
             while (! feof($source)) {
                 $chunk = fread($source, $this->bufferSize);
@@ -61,21 +79,42 @@ class Bzip2 implements CompressionDriver
                     );
                 }
 
-                $written = bzwrite($destination, $chunk);
-                if ($written === false) {
-                    throw CompressionException::compressionFailed(
-                        $this->name(),
-                        $filePath,
-                        'Failed to write to bzip2 file'
-                    );
+                while ($chunk !== '') {
+                    $written = bzwrite($destination, $chunk);
+                    if ($written === false || $written === 0) {
+                        throw CompressionException::compressionFailed(
+                            $this->name(),
+                            $filePath,
+                            'Failed to write to bzip2 file'
+                        );
+                    }
+
+                    $chunk = substr($chunk, $written);
                 }
+            }
+
+            $destinationOpen = false;
+            if (! bzclose($destination)) {
+                throw CompressionException::compressionFailed(
+                    $this->name(),
+                    $filePath,
+                    'Failed to finalize bzip2 file'
+                );
             }
 
             return $bz2Path;
         } catch (CompressionException $e) {
+            if ($destinationOpen) {
+                $destinationOpen = false;
+                bzclose($destination);
+            }
             @unlink($bz2Path);
             throw $e;
         } catch (\Throwable $e) {
+            if ($destinationOpen) {
+                $destinationOpen = false;
+                bzclose($destination);
+            }
             @unlink($bz2Path);
             throw CompressionException::compressionFailed(
                 $this->name(),
@@ -85,7 +124,6 @@ class Bzip2 implements CompressionDriver
             );
         } finally {
             fclose($source);
-            bzclose($destination);
         }
     }
 
