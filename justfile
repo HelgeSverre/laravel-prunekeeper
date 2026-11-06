@@ -116,23 +116,23 @@ test-filter filter: up wait
 
 # Run all tests in Docker container
 [group('test')]
-dtest: install up wait
-    docker compose run --rm php vendor/bin/pest
+dtest: up wait
+    bash scripts/test-docker.sh
 
 # Run unit tests in Docker container
 [group('test')]
-dtest-unit: install up wait
-    docker compose run --rm php vendor/bin/pest --testsuite=Unit
+dtest-unit: up wait
+    bash scripts/test-docker.sh --testsuite=Unit
 
 # Run integration tests in Docker container
 [group('test')]
-dtest-integration: install up wait
-    docker compose run --rm php vendor/bin/pest --testsuite=Integration
+dtest-integration: up wait
+    bash scripts/test-docker.sh --testsuite=Integration
 
 # Run tests with coverage in Docker container (uses pcov)
 [group('test')]
 dcoverage *args: up wait
-    docker compose run --rm php vendor/bin/pest --coverage {{ args }}
+    bash scripts/test-docker.sh --coverage {{ args }}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Code Quality
@@ -141,7 +141,7 @@ dcoverage *args: up wait
 # Run static analysis with PHPStan
 [group('quality')]
 analyse:
-    vendor/bin/phpstan analyse src --level=6
+    composer analyse
 
 # Run code formatter (Laravel Pint)
 [group('quality')]

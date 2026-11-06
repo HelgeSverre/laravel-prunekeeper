@@ -28,10 +28,10 @@ class TestMassPrunableModel extends Model
     /**
      * Get the prunable model query.
      *
-     * @return Builder<self>
+     * @return Builder<static>
      */
     public function prunable(): Builder
     {
-        return static::where('created_at', '<=', now()->subMonth());
+        return static::query()->where('created_at', '<=', now()->subMonth());
     }
 }

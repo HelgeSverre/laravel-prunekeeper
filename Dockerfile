@@ -1,4 +1,5 @@
-FROM php:8.2-cli
+ARG PHP_VERSION=8.3
+FROM php:${PHP_VERSION}-cli
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -7,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     libzip-dev \
     libbz2-dev \
     libpq-dev \
+    libsqlite3-dev \
     libicu-dev \
     && rm -rf /var/lib/apt/lists/*
 
@@ -16,6 +18,7 @@ RUN docker-php-ext-install \
     bz2 \
     pdo_mysql \
     pdo_pgsql \
+    pdo_sqlite \
     pcntl \
     intl
 

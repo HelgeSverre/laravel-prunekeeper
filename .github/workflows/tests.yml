@@ -7,17 +7,32 @@ on:
     branches: [main]
 
 jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        laravel: ['11', '12', '13']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Smoke test fresh Laravel installation in Docker
+        env:
+          PRUNEKEEPER_SMOKE_LARAVEL_VERSIONS: ${{ matrix.laravel }}
+        run: bash scripts/smoke-docker.sh
+
   test:
     runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.2', '8.3', '8.4']
-        laravel: ['11.*', '12.*']
+        php: ['8.2', '8.3', '8.4', '8.5']
+        laravel: ['11.*', '12.*', '13.*']
         exclude:
           - php: '8.2'
-            laravel: '12.*'
+            laravel: '13.*'
+          - php: '8.5'
+            laravel: '11.*'
 
     services:
       mysql:
@@ -132,11 +147,14 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, pdo_mysql, pdo_pgsql, pdo_sqlite
+          extensions: dom, curl, libxml, mbstring, zip, bz2, pcntl, pdo, pdo_mysql, pdo_pgsql, pdo_sqlite
           coverage: none
 
       - name: Install dependencies
         run: |
+          if [ "${{ matrix.laravel }}" = '11.*' ]; then
+            composer config audit.block-insecure false
+          fi
           composer require "laravel/framework:${{ matrix.laravel }}" --no-interaction --no-update
           composer update --prefer-dist --no-interaction
 
