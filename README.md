@@ -2,6 +2,7 @@
 
 **Archive prunable Eloquent records before deletion.**
 
+[![Tests](https://img.shields.io/github/actions/workflow/status/HelgeSverre/laravel-prunekeeper/tests.yml?branch=main&style=flat-square&label=tests)](https://github.com/HelgeSverre/laravel-prunekeeper/actions/workflows/tests.yml)
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/helgesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgesverre/laravel-prunekeeper)
 [![Total Downloads](https://img.shields.io/packagist/dt/helgesverre/laravel-prunekeeper.svg?style=flat-square)](https://packagist.org/packages/helgesverre/laravel-prunekeeper)
 [![License](https://img.shields.io/packagist/l/helgesverre/laravel-prunekeeper.svg?style=flat-square&v=2)](https://packagist.org/packages/helgesverre/laravel-prunekeeper)
